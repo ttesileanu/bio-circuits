@@ -1,0 +1,26 @@
+name:
+    bio-circuits
+
+channels:
+    - pytorch
+    - conda-forge
+
+dependencies:
+    - python=3.9
+    - pip
+    - black
+    - pytest
+    - numpy
+    - scipy
+    - pandas
+    - matplotlib
+    - seaborn
+    - pytorch
+    - torchvision
+    - scikit-learn
+    - tqdm
+    - ipykernel
+    - jupyter
+     
+    - pip:
+        - pydove
