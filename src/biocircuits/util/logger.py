@@ -108,11 +108,12 @@ class Logger:
             mean_value = np.nan
         return mean_value
 
-    def log_accumulated(self):
+    def log_accumulated(self) -> "Logger":
         """Average all accumulated values, log them, and clear up accumulator."""
         for key in self._accumulator:
             self.log(key, self.calculate_accumulated(key))
         self._accumulator.clear()
+        return self
 
     def __repr__(self) -> str:
         s = f"Logger(finalized={self.finalized}, "
