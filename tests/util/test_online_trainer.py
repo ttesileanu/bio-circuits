@@ -254,3 +254,50 @@ def test_multiparam_log_accumulated_stores_sample_for_each_key(trainer, net, loa
 
     assert "foo.sample" in trainer.logger.history
     assert "bar.sample" in trainer.logger.history
+
+
+def test_log_with_index_prefix(trainer, net, loader):
+    for batch in trainer(net, loader):
+        batch.log("foo", 0, index_prefix="bar")
+
+    assert "foo.sample" not in trainer.logger.history
+    assert "bar.sample" in trainer.logger.history
+
+
+def test_multiparam_log_with_index_prefix(trainer, net, loader):
+    for batch in trainer(net, loader):
+        batch.log({"foo": 0.0, "bar": 1.0}, index_prefix="boo")
+
+    assert "foo.sample" not in trainer.logger.history
+    assert "bar.sample" not in trainer.logger.history
+    assert "boo.sample" in trainer.logger.history
+
+
+def test_log_batch_with_index_prefix(trainer, net, loader):
+    a = np.array([0.0, 1.0])
+    for batch in trainer(net, loader):
+        batch.log_batch("foo", a, index_prefix="bar")
+
+    assert "foo.sample" not in trainer.logger.history
+    assert "bar.sample" in trainer.logger.history
+
+
+def test_multiparam_log_batch_with_index_prefix(trainer, net, loader):
+    a = np.array([0.0, 1.0])
+    for batch in trainer(net, loader):
+        batch.log_batch({"foo": a, "bar": a}, index_prefix="boo")
+
+    assert "foo.sample" not in trainer.logger.history
+    assert "bar.sample" not in trainer.logger.history
+    assert "boo.sample" in trainer.logger.history
+
+
+def test_log_accumulated_with_index_prefix(trainer, net, loader):
+    for batch in trainer(net, loader):
+        if batch.every(4):
+            batch.log_accumulated(index_prefix="boo")
+        batch.accumulate({"foo": 0.0, "bar": 1.0})
+
+    assert "foo.sample" not in trainer.logger.history
+    assert "bar.sample" not in trainer.logger.history
+    assert "boo.sample" in trainer.logger.history

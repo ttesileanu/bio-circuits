@@ -79,18 +79,28 @@ class TrainingBatch:
         self._iterator.terminating = True
 
     def log(
-        self, key: Union[str, dict], value: Optional[Any] = None
+        self,
+        key: Union[str, dict],
+        value: Optional[Any] = None,
+        index_prefix: Optional[str] = None,
     ) -> "TrainingBatch":
         """Log a value or set of values.
 
         In addition to calling `Logger.log()` for the given key-value combination, this
         also records the associated sample index in a key named `f"{key}.sample"`.
 
-        Returns `self` (NB: not the logger!).
+        :param key: key to log in, or dictionary of key-value pairs
+        :param value: value to log; needed if `key` is not a `dict`
+        :param index_prefix: key prefix to use for storing sample index; this is most
+            useful if `key` is a `dict` as only one key is used for storing sample
+            indices
+        :return: self (NB: not the logger!).
         """
         self._logger.log(key, value)
 
-        if isinstance(key, str):
+        if index_prefix is not None:
+            self._logger.log(f"{index_prefix}.sample", self.sample_idx)
+        elif isinstance(key, str):
             self._logger.log(f"{key}.sample", self.sample_idx)
         else:
             for crt in key:
@@ -99,7 +109,10 @@ class TrainingBatch:
         return self
 
     def log_batch(
-        self, key: Union[str, dict], value: Optional[Any] = None
+        self,
+        key: Union[str, dict],
+        value: Optional[Any] = None,
+        index_prefix: Optional[str] = None,
     ) -> "TrainingBatch":
         """Log a batch of values.
 
@@ -109,12 +122,19 @@ class TrainingBatch:
         Note that the batch size is based on `self.data`, not on the shape of the logged
         values! It is the user's responsibility to make sure that these match.
 
-        Returns `self` (NB: not the logger!).
+        :param key: key to log in, or dictionary of key-value pairs
+        :param value: value to log; needed if `key` is not a `dict`
+        :param index_prefix: key prefix to use for storing sample index; this is most
+            useful if `key` is a `dict` as only one key is used for storing sample
+            indices
+        :return: self (NB: not the logger!).
         """
         self._logger.log(key, value)
 
         samples = self.sample_idx + torch.arange(len(self))
-        if isinstance(key, str):
+        if index_prefix is not None:
+            self._logger.log(f"{index_prefix}.sample", self.sample_idx)
+        elif isinstance(key, str):
             self._logger.log_batch(f"{key}.sample", samples)
         else:
             for crt in key:
@@ -138,17 +158,25 @@ class TrainingBatch:
         """
         return self._logger.calculate_accumulated(key)
 
-    def log_accumulated(self) -> "TrainingBatch":
+    def log_accumulated(self, index_prefix: Optional[str] = None) -> "TrainingBatch":
         """Store accumulated values.
 
         In addition to calling `Logger.log()` for all accumulated keys, this also
         records the associated sample indices in keys named `f"{key}.sample"`.
+
+        :param index_prefix: key prefix to use for storing sample index; this is most
+            useful if `key` is a `dict` as only one key is used for storing sample
+            indices
+        :return: self (NB: not the logger!).
         """
         keys = list(self._logger._accumulator.keys())
         self._logger.log_accumulated()
 
-        for key in keys:
-            self._logger.log(f"{key}.sample", self.sample_idx)
+        if index_prefix is not None:
+            self._logger.log(f"{index_prefix}.sample", self.sample_idx)
+        else:
+            for key in keys:
+                self._logger.log(f"{key}.sample", self.sample_idx)
 
         return self
 
