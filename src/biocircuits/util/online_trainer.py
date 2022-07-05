@@ -1,6 +1,6 @@
 import torch
 
-from typing import Iterable, Any, Union
+from typing import Iterable, Any, Union, Optional
 
 from .logger import Logger
 
@@ -78,7 +78,9 @@ class TrainingBatch:
         """
         self._iterator.terminating = True
 
-    def log(self, key: Union[str, dict], value: Any) -> "TrainingBatch":
+    def log(
+        self, key: Union[str, dict], value: Optional[Any] = None
+    ) -> "TrainingBatch":
         """Log a value or set of values.
 
         In addition to calling `Logger.log()` for the given key-value combination, this
@@ -87,10 +89,18 @@ class TrainingBatch:
         Returns `self` (NB: not the logger!).
         """
         self._logger.log(key, value)
-        self._logger.log(f"{key}.sample", self.sample_idx)
+
+        if isinstance(key, str):
+            self._logger.log(f"{key}.sample", self.sample_idx)
+        else:
+            for crt in key:
+                self._logger.log(f"{crt}.sample", self.sample_idx)
+
         return self
 
-    def log_batch(self, key: Union[str, dict], value: Any) -> "TrainingBatch":
+    def log_batch(
+        self, key: Union[str, dict], value: Optional[Any] = None
+    ) -> "TrainingBatch":
         """Log a batch of values.
 
         In addition to calling `Logger.log()` for the given key-value combination, this
@@ -104,10 +114,16 @@ class TrainingBatch:
         self._logger.log(key, value)
 
         samples = self.sample_idx + torch.arange(len(self))
-        self._logger.log_batch(f"{key}.sample", samples)
+        if isinstance(key, str):
+            self._logger.log_batch(f"{key}.sample", samples)
+        else:
+            for crt in key:
+                self._logger.log_batch(f"{crt}.sample", samples)
         return self
 
-    def accumulate(self, key: Union[str, dict], value: Any) -> "TrainingBatch":
+    def accumulate(
+        self, key: Union[str, dict], value: Optional[Any] = None
+    ) -> "TrainingBatch":
         """Accumulate values to log later.
 
         This simply calls `Logger.accumulate()`.

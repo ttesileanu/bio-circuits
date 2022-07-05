@@ -227,3 +227,30 @@ def test_train_batch_repr(trainer, net, loader, kind):
     s = {"repr": repr, "str": str}[kind](batch)
     assert s.startswith("TrainingBatch(")
     assert s.endswith(")")
+
+
+def test_multiparam_log_stores_sample_for_each_key(trainer, net, loader):
+    for batch in trainer(net, loader):
+        batch.log({"foo": 0.0, "bar": 1.0})
+
+    assert "foo.sample" in trainer.logger.history
+    assert "bar.sample" in trainer.logger.history
+
+
+def test_multiparam_log_batch_stores_sample_for_each_key(trainer, net, loader):
+    a = np.array([0.0, 1.0])
+    for batch in trainer(net, loader):
+        batch.log_batch({"foo": a, "bar": a})
+
+    assert "foo.sample" in trainer.logger.history
+    assert "bar.sample" in trainer.logger.history
+
+
+def test_multiparam_log_accumulated_stores_sample_for_each_key(trainer, net, loader):
+    for batch in trainer(net, loader):
+        if batch.every(4):
+            batch.log_accumulated()
+        batch.accumulate({"foo": 0.0, "bar": 1.0})
+
+    assert "foo.sample" in trainer.logger.history
+    assert "bar.sample" in trainer.logger.history
