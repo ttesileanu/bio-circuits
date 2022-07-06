@@ -45,7 +45,12 @@ class TrainingBatch:
         self._logger = self._trainer.logger
 
     def training_step(self) -> Any:
-        """Run one training step, returning the output from `model.forward()`."""
+        """Run one training step, returning the output.
+
+        If the model has a method `model.training_step()`, then this is called and its
+        output returned. Otherwise, `model.forward()` is called, followed by
+        `model.backward()`. The output from `forward()` is returned.
+        """
         if hasattr(self._model, "training_step"):
             out = self._model.training_step(self)
         else:
