@@ -46,8 +46,11 @@ class TrainingBatch:
 
     def training_step(self) -> Any:
         """Run one training step, returning the output from `model.forward()`."""
-        out = self._model.forward(*self.data)
-        self._model.backward(out)
+        if hasattr(self._model, "training_step"):
+            out = self._model.training_step(self)
+        else:
+            out = self._model.forward(*self.data)
+            self._model.backward(out)
 
         return out
 

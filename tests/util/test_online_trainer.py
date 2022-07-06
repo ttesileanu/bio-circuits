@@ -22,9 +22,7 @@ def loader():
 
 @pytest.fixture
 def net():
-    n = Mock()
-    n.forward.return_value = torch.zeros(4)
-
+    n = SimpleNamespace(forward=Mock(return_value=torch.zeros(4)), backward=Mock())
     return n
 
 
@@ -301,3 +299,24 @@ def test_log_accumulated_with_index_prefix(trainer, net, loader):
     assert "foo.sample" not in trainer.logger.history
     assert "bar.sample" not in trainer.logger.history
     assert "boo.sample" in trainer.logger.history
+
+
+def test_batch_training_step_calls_model_training_step_if_available(
+    net, trainer, loader
+):
+    net.training_step = Mock()
+
+    batch = next(iter(trainer(net, loader)))
+    batch.training_step()
+
+    net.forward.assert_not_called()
+    net.backward.assert_not_called()
+    net.training_step.assert_called()
+
+
+def test_batch_training_step_calls_model_training_step_with_batch(net, trainer, loader):
+    net.training_step = Mock()
+
+    for batch in trainer(net, loader):
+        batch.training_step()
+        net.training_step.assert_called_with(batch)
