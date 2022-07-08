@@ -22,6 +22,7 @@ class TrainingBatch:
     :param data: batch data
     :param idx: batch index
     :param sample_idx: sample index for the start of the batch
+    :param trainer: trainer iterable that the batch came from
     """
 
     def __init__(
@@ -29,7 +30,7 @@ class TrainingBatch:
         data: torch.Tensor,
         idx: int,
         sample_idx: int,
-        iterator: "TrainingIterable",
+        trainer: "OnlineTrainer",
     ):
         self.data = data
         n = len(self.data[0])
@@ -38,11 +39,10 @@ class TrainingBatch:
 
         self.idx = idx
         self.sample_idx = sample_idx
+        self.trainer = trainer
 
-        self._iterator = iterator
-        self._trainer = self._iterator.trainer
-        self._model = self._iterator.model
-        self._logger = self._trainer.logger
+        self._model = trainer.model
+        self._logger = trainer.logger
 
     def training_step(self) -> Any:
         """Run one training step, returning the output.
@@ -73,7 +73,7 @@ class TrainingBatch:
         if total == 1:
             return self.idx == 0
         else:
-            n = len(self._iterator.loader)
+            n = len(self.trainer.loader)
             mod = (self.idx * (total - 1)) % (n - 1)
             return mod == 0 or mod > n - total
 
@@ -84,7 +84,7 @@ class TrainingBatch:
         first time a new batch is requested. Put differently, the remaining of the `for`
         loop will still be run before it terminates.
         """
-        self._iterator.terminating = True
+        self.trainer.terminating = True
 
     def log(
         self,
@@ -203,20 +203,36 @@ class TrainingBatch:
         return s
 
 
-class TrainingIterable:
-    """Iterable returned by calling an OnlineTrainer, as well as corresponding iterator.
+class OnlineTrainer:
+    """Manager for online training sections.
 
-    Iterating through this yields `TrainingBatch`es. At the end of iteration, the
-    `OnlineTrainer`'s `Logger`'s `finalize` method is called to prepare the results for
-    easy access.
+    This is an iterable that yields `TrainingBatch objects, which can be used to train
+    the network and log values in `self.logger`. At the end of iteration, the logger's
+    `finalize()` method is called to prepare the results for easy access.
+
+    Attributes
+    :param logger: `Logger` object used for keeping track of reported tensors; it is
+        generally best to use `TrainingBatch.log` and related functions for logging, and
+        reserve `logger` for reading out the logged data
     """
 
     def __init__(
-        self, trainer: "OnlineTrainer", model: torch.nn.Module, loader: Iterable
+        self,
+        model: torch.nn.Module,
+        loader: Iterable,
+        lr: Optional[float] = None,
+        optim_kws: Optional[dict] = None,
     ):
-        self.trainer = trainer
+        """Initialize the iterable, setting up optimizers and schedulers.
+
+        :param trainer: the trainer object used for the iteration
+        :param model: the model to be trained
+        :param loader: the data to train on
+        """
         self.model = model
         self.loader = loader
+
+        self.logger = Logger()
 
         self.terminating = False
 
@@ -224,7 +240,7 @@ class TrainingIterable:
         self._i = 0
         self._sample = 0
 
-    def __iter__(self) -> "TrainingIterable":
+    def __iter__(self) -> "OnlineTrainer":
         self.terminating = False
 
         self._i = 0
@@ -240,7 +256,7 @@ class TrainingIterable:
             data = next(self._it)
 
             batch = TrainingBatch(
-                data=data, idx=self._i, sample_idx=self._sample, iterator=self
+                data=data, idx=self._i, sample_idx=self._sample, trainer=self
             )
             self._i += 1
             self._sample += len(batch)
@@ -249,7 +265,7 @@ class TrainingIterable:
 
         except StopIteration:
             # ensure logger coalesces history at the end of the iteration
-            self.trainer.logger.finalize()
+            self.logger.finalize()
             raise StopIteration
 
     def __len__(self) -> int:
@@ -257,10 +273,10 @@ class TrainingIterable:
 
     def __repr__(self) -> str:
         s = (
-            f"TrainingIterable("
-            f"trainer={repr(self.trainer)}, "
+            f"OnlineTrainer("
             f"model={repr(self.model)}, "
             f"loader={repr(self.loader)}, "
+            f"logger={repr(self.logger)}, "
             f"terminating={self.terminating}, "
             f")"
         )
@@ -268,34 +284,10 @@ class TrainingIterable:
 
     def __str__(self) -> str:
         s = (
-            f"TrainingIterable("
-            f"trainer={str(self.trainer)}, "
-            f"model={repr(self.model)}, "
+            f"OnlineTrainer("
+            f"model={str(self.model)}, "
             f"loader={str(self.loader)}, "
+            f"logger={str(self.logger)}, "
             f")"
         )
-        return s
-
-
-class OnlineTrainer:
-    """Manager for online training sections.
-
-    Calling an `OnlineTrainer` object returns a `TrainingIterable`. Iterating through
-    that iterable yields `TrainingBatch` objects, which can be used to train the network
-    and report values to a `Logger`.
-
-    Attributes
-    :param logger: `Logger` object used for keeping track of reported tensors; it is
-        generally best to use `TrainingBatch.log` and related functions for logging, and
-        reserve `logger` for reading out the logged data
-    """
-
-    def __init__(self):
-        self.logger = Logger()
-
-    def __call__(self, model: torch.nn.Module, loader: Iterable) -> TrainingIterable:
-        return TrainingIterable(self, model, loader)
-
-    def __repr__(self) -> str:
-        s = f"OnlineTrainer(logger={repr(self.logger)})"
         return s
