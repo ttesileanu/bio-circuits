@@ -49,13 +49,28 @@ class TrainingBatch:
 
         If the model has a method `model.training_step()`, then this is called and its
         output returned. Otherwise, `model.forward()` is called, followed by
-        `model.backward()`. The output from `forward()` is returned.
+        `optim.zero_grad()` for all optimizers in `self.optimizers`, and finally
+        `model.backward()`.
+
+        Next, optimizers are called in the order from `self.trainer.optimizers`, and
+        then the schedulers in the order from `self.trainer.schedulers`.
+
+        The output from `forward()` is returned.
         """
         if hasattr(self._model, "training_step"):
             out = self._model.training_step(self)
         else:
             out = self._model.forward(*self.data)
+
+            for optim in self.trainer.optimizers:
+                optim.zero_grad()
+
             self._model.backward(out)
+
+        for optim in self.trainer.optimizers:
+            optim.step()
+        for sched in self.trainer.schedulers:
+            sched.step()
 
         return out
 
@@ -260,6 +275,8 @@ class OnlineTrainer:
         self._i = 0
         self._sample = 0
 
+        self.optimizers = []
+        self.schedulers = []
         self._configure_optimizers(lr, optim_kws)
 
     def __iter__(self) -> "OnlineTrainer":

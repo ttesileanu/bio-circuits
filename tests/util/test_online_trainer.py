@@ -36,6 +36,12 @@ def net_optim():
     )
 
 
+@pytest.fixture
+def trainer_optim(net_optim, loader):
+    trainer = OnlineTrainer(net_optim, loader)
+    return trainer
+
+
 @pytest.fixture()
 def sample_history(loader) -> SimpleNamespace:
     net = SimpleNamespace(
@@ -350,3 +356,56 @@ def test_trainer_init_stores_output_from_configure_optimizers(net_optim, loader)
 
     assert len(trainer.schedulers) == 1
     assert trainer.schedulers[0] is sched
+
+
+def test_optimizers_and_schedulers_are_empty_lists_if_no_configure_optimizers(trainer):
+    assert len(trainer.optimizers) == 0
+    assert len(trainer.schedulers) == 0
+
+
+def test_batch_training_step_calls_optimizer_zero_grad(trainer_optim):
+    batch = next(iter(trainer_optim))
+    batch.training_step()
+
+    for optim in trainer_optim.optimizers:
+        optim.zero_grad.assert_called_once()
+
+
+def test_batch_training_step_calls_optimizer_step(trainer_optim):
+    batch = next(iter(trainer_optim))
+    batch.training_step()
+
+    for optim in trainer_optim.optimizers:
+        optim.step.assert_called_once()
+
+
+def test_batch_training_step_calls_scheduler_step(trainer_optim):
+    batch = next(iter(trainer_optim))
+    batch.training_step()
+
+    for sched in trainer_optim.schedulers:
+        sched.step.assert_called_once()
+
+
+def test_optimizer_and_scheduler_step_called_when_model_has_training_step(
+    trainer_optim,
+):
+    trainer_optim.model.training_step = Mock()
+
+    batch = next(iter(trainer_optim))
+    batch.training_step()
+
+    for optim in trainer_optim.optimizers:
+        optim.step.assert_called_once()
+    for sched in trainer_optim.schedulers:
+        sched.step.assert_called_once()
+
+
+def test_optimizer_zero_grad_not_called_when_model_has_training_step(trainer_optim):
+    trainer_optim.model.training_step = Mock()
+
+    batch = next(iter(trainer_optim))
+    batch.training_step()
+
+    for optim in trainer_optim.optimizers:
+        optim.zero_grad.assert_not_called()
