@@ -302,3 +302,12 @@ def test_batch_training_step_calls_model_training_step_with_batch(trainer):
     for batch in trainer:
         batch.training_step()
         trainer.model.training_step.assert_called_with(batch)
+
+
+def test_cannot_iterate_twice(trainer):
+    for _ in trainer:
+        pass
+
+    with pytest.raises(IndexError):
+        for _ in trainer:
+            pass

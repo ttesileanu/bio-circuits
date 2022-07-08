@@ -210,6 +210,9 @@ class OnlineTrainer:
     the network and log values in `self.logger`. At the end of iteration, the logger's
     `finalize()` method is called to prepare the results for easy access.
 
+    Note that one can iterate over the trainer only once (even if the previous iteration
+    did not finish). If a new iteration is attempted, `IndexError` is raised.
+
     Attributes
     :param logger: `Logger` object used for keeping track of reported tensors; it is
         generally best to use `TrainingBatch.log` and related functions for logging, and
@@ -241,6 +244,9 @@ class OnlineTrainer:
         self._sample = 0
 
     def __iter__(self) -> "OnlineTrainer":
+        if self._it is not None:
+            raise IndexError("attempt to iterate over OnlineTrainer a second time")
+
         self.terminating = False
 
         self._i = 0
