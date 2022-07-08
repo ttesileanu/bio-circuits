@@ -57,19 +57,24 @@ class TrainingBatch:
 
         The output from `forward()` is returned.
         """
-        if hasattr(self._model, "training_step"):
-            out = self._model.training_step(self)
-        else:
-            out = self._model.forward(*self.data)
+        model = self._model
+        trainer = self.trainer
+        optimizers = trainer.optimizers
+        schedulers = trainer.schedulers
 
-            for optim in self.trainer.optimizers:
+        if hasattr(model, "training_step"):
+            out = model.training_step(self)
+        else:
+            out = model.forward(*self.data)
+
+            for optim in optimizers:
                 optim.zero_grad()
 
-            self._model.backward(out)
+            model.backward(out)
 
-        for optim in self.trainer.optimizers:
+        for optim in optimizers:
             optim.step()
-        for sched in self.trainer.schedulers:
+        for sched in schedulers:
             sched.step()
 
         return out
