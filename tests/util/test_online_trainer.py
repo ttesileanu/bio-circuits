@@ -27,10 +27,20 @@ def trainer(loader):
     return trainer
 
 
+@pytest.fixture
+def net_optim():
+    return SimpleNamespace(
+        forward=Mock(return_value=torch.zeros(4)),
+        backward=Mock(),
+        configure_optimizers=Mock(return_value=([Mock()], [Mock()])),
+    )
+
+
 @pytest.fixture()
 def sample_history(loader) -> SimpleNamespace:
-    net = Mock()
-    net.forward.return_value = torch.FloatTensor([0.0, 0.0])
+    net = SimpleNamespace(
+        forward=Mock(return_value=torch.FloatTensor([0.0, 0.0])), backward=Mock()
+    )
 
     loader = generate_loader(dim=3, batch_size=4, n_batches=25)
     trainer = OnlineTrainer(net, loader)
@@ -311,3 +321,32 @@ def test_cannot_iterate_twice(trainer):
     with pytest.raises(IndexError):
         for _ in trainer:
             pass
+
+
+def test_trainer_init_calls_model_configure_optimizers(net_optim, loader):
+    trainer = OnlineTrainer(net_optim, loader)
+    trainer.model.configure_optimizers.assert_called_once_with()
+
+
+def test_trainer_init_passes_lr_to_configure_optimizers(net_optim, loader):
+    lr = 0.123
+    trainer = OnlineTrainer(net_optim, loader, lr=lr)
+    trainer.model.configure_optimizers.assert_called_once_with(lr=lr)
+
+
+def test_trainer_init_passes_optim_kws_to_configure_optimizers(net_optim, loader):
+    trainer = OnlineTrainer(net_optim, loader, optim_kws={"foo": "bar"})
+    trainer.model.configure_optimizers.assert_called_once_with(foo="bar")
+
+
+def test_trainer_init_stores_output_from_configure_optimizers(net_optim, loader):
+    optim = Mock()
+    sched = Mock()
+    net_optim.configure_optimizers.return_value = ([optim], [sched])
+    trainer = OnlineTrainer(net_optim, loader)
+
+    assert len(trainer.optimizers) == 1
+    assert trainer.optimizers[0] is optim
+
+    assert len(trainer.schedulers) == 1
+    assert trainer.schedulers[0] is sched

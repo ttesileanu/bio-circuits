@@ -207,8 +207,12 @@ class OnlineTrainer:
     """Manager for online training sections.
 
     This is an iterable that yields `TrainingBatch objects, which can be used to train
-    the network and log values in `self.logger`. At the end of iteration, the logger's
-    `finalize()` method is called to prepare the results for easy access.
+    the network and log values in `self.logger`.
+
+    The constructor creates optimizers and (optionally) schedulers; see `__init__`. At
+    the end of iteration, the logger's `finalize()` method is called to prepare the
+    results for easy access. Note that `finalize()` will have to be called manually if
+    the iteration is stopped for any other reason that reaching the end of the loader.
 
     Note that one can iterate over the trainer only once (even if the previous iteration
     did not finish). If a new iteration is attempted, `IndexError` is raised.
@@ -217,6 +221,10 @@ class OnlineTrainer:
     :param logger: `Logger` object used for keeping track of reported tensors; it is
         generally best to use `TrainingBatch.log` and related functions for logging, and
         reserve `logger` for reading out the logged data
+    :param optimizers: list of optimizers; these are run for every training step; see
+        `TrainingBatch`
+    :param schedulers: list of learning-rate schedulers; these are run for every
+        training step; see `TrainingBatch`
     """
 
     def __init__(
@@ -228,9 +236,18 @@ class OnlineTrainer:
     ):
         """Initialize the iterable, setting up optimizers and schedulers.
 
-        :param trainer: the trainer object used for the iteration
+        This calls `model.configure_optimizers()`, which is expected to return two
+        lists, `optimizers` and `schedulers`; these are stored in `self.optimizers` and
+        `self.schedulers`. Arguments can be passed to `configure_optimizers()`; see
+        below.
+
+        If the model does not have a `configure_optimizers()` method, then no optimizers
+        or schedulers are set up.
+
         :param model: the model to be trained
         :param loader: the data to train on
+        :param lr: learning rate to pass to `configure_optimizers()`, if not `None`
+        :param optim_kws: keyword arguments to pass to `configure_optimizers()`
         """
         self.model = model
         self.loader = loader
@@ -242,6 +259,8 @@ class OnlineTrainer:
         self._it = None
         self._i = 0
         self._sample = 0
+
+        self._configure_optimizers(lr, optim_kws)
 
     def __iter__(self) -> "OnlineTrainer":
         if self._it is not None:
@@ -273,6 +292,17 @@ class OnlineTrainer:
             # ensure logger coalesces history at the end of the iteration
             self.logger.finalize()
             raise StopIteration
+
+    def _configure_optimizers(self, lr: Optional[float], optim_kws: Optional[dict]):
+        if hasattr(self.model, "configure_optimizers"):
+            if optim_kws is None:
+                optim_kws = {}
+            if lr is not None:
+                optim_kws["lr"] = lr
+
+            self.optimizers, self.schedulers = self.model.configure_optimizers(
+                **optim_kws
+            )
 
     def __len__(self) -> int:
         return len(self.loader)
