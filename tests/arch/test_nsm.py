@@ -151,3 +151,23 @@ def test_one_fast_iteration():
     y_exp = nsm.W @ x - nsm.M @ results[0]
 
     assert torch.allclose(results[1], y_exp)
+
+
+def test_fast_iteration_with_batch():
+    seed = 100
+
+    x = torch.FloatTensor([[-0.1, 0.3, 0.5, 0.2, 0.4], [0.2, 0.5, 0.3, 0.1, -0.5]])
+
+    torch.manual_seed(seed)
+    nsm = NSM(5, 3)
+
+    y_batch = nsm.forward(x)
+
+    y = []
+    for crt_x in x:
+        torch.manual_seed(seed)
+        nsm = NSM(5, 3)
+
+        y.append(nsm.forward(crt_x))
+
+    assert torch.allclose(y_batch, torch.stack(y))

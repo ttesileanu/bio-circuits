@@ -87,10 +87,10 @@ class NSM(nn.Module):
 
             y_init = W @ x
         """
-        Wx = self.W @ x
+        Wx = x @ self.W.T
 
         y = Wx
         for _ in range(self.fast_iterations):
-            y = self.W @ x - self.M @ y
+            y = Wx - y @ self.M
 
         return y
