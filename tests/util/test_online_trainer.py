@@ -104,11 +104,13 @@ def test_batch_training_step_returns_output_from_forward(trainer):
     assert torch.allclose(out, ret_val)
 
 
-def test_batch_training_step_calls_net_backward_with_output_from_forward(trainer):
+def test_batch_training_step_calls_net_backward_with_input_and_output_from_forward(
+    trainer,
+):
     batch = next(iter(trainer))
     out = batch.training_step()
 
-    trainer.model.backward.assert_called_once_with(out)
+    trainer.model.backward.assert_called_once_with(*batch.data, out)
 
 
 def test_batch_contains_batch_index(trainer):

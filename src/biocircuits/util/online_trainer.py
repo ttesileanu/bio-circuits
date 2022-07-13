@@ -70,7 +70,7 @@ class TrainingBatch:
             for optim in optimizers:
                 optim.zero_grad()
 
-            model.backward(out)
+            model.backward(*self.data, out)
 
         for optim in optimizers:
             optim.step()
