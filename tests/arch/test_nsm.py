@@ -171,3 +171,63 @@ def test_fast_iteration_with_batch():
         y.append(nsm.forward(crt_x))
 
     assert torch.allclose(y_batch, torch.stack(y))
+
+
+def test_grad_tau(nsm):
+    x = torch.FloatTensor([-0.5, 0.3, 0.5, 1.2, 0.1])
+    y = nsm.forward(x)
+    nsm.backward(x, y)
+    assert torch.allclose(nsm.tau.grad, -(y**2))
+
+
+def test_grad_w(nsm):
+    x = torch.FloatTensor([-0.5, 0.3, 0.5, 1.2, 0.1])
+    y = nsm.forward(x)
+    nsm.backward(x, y)
+
+    for i in range(nsm.output_dim):
+        for j in range(nsm.input_dim):
+            expected = y[i] * (nsm.W[i, j] * y[i] - x[j]) / nsm.tau[i]
+            assert torch.allclose(nsm.W.grad[i, j], expected)
+
+
+def test_grad_m(nsm):
+    x = torch.FloatTensor([-0.5, 0.3, 0.5, 1.2, 0.1])
+    y = nsm.forward(x)
+    nsm.backward(x, y)
+
+    for i in range(nsm.output_dim):
+        for j in range(nsm.output_dim):
+            if i == j:
+                expected = torch.tensor(0.0)
+            else:
+                expected = y[i] * (nsm.M[i, j] * y[i] - y[j]) / nsm.tau[i]
+            assert torch.allclose(nsm.M.grad[i, j], expected)
+
+
+@pytest.mark.parametrize("var", ["tau", "M", "W"])
+def test_batch_grad(nsm, var):
+    x = torch.FloatTensor(
+        [
+            [-0.5, 0.3, 0.5, 1.2, 0.1],
+            [1.5, 0.0, -0.3, 0.2, 0.1],
+            [0.5, -0.3, 1.3, 0.2, -0.1],
+        ]
+    )
+    y = nsm.forward(x)
+    nsm.backward(x, y)
+
+    batch_grad = getattr(nsm, var).grad.detach().clone()
+
+    # reset the gradient
+    getattr(nsm, var).grad = None
+
+    expected_grad_sum = 0
+    for crt_x in x:
+        crt_y = nsm.forward(crt_x)
+        nsm.backward(crt_x, crt_y)
+        crt_grad = getattr(nsm, var).grad.detach().clone()
+        expected_grad_sum = expected_grad_sum + crt_grad
+
+    n = len(x)
+    assert torch.allclose(batch_grad, expected_grad_sum / n)

@@ -94,3 +94,31 @@ class NSM(nn.Module):
             y = Wx - y @ self.M
 
         return y
+
+    def backward(self, x: torch.Tensor, y: torch.Tensor):
+        """Accumulate gradients given input and output from forward."""
+        assert x.ndim == y.ndim
+
+        if y.ndim == 1:
+            x = x.unsqueeze(0)
+            y = y.unsqueeze(0)
+
+        assert len(x) == len(y)
+
+        # self.tau.grad = -(y**2)
+        # self.W.grad = y * (self.W * y - x) / self.tau
+
+        sq_y = y**2
+        all_tau_grad = -sq_y
+
+        W_hebb = y[:, :, None] @ x[:, None, :]
+        W_decay = sq_y[:, :, None] * self.W[None, :, :]
+        all_W_grad = (W_decay - W_hebb) / self.tau[None, :, None]
+
+        M_hebb = y[:, :, None] @ y[:, None, :]
+        M_decay = sq_y[:, :, None] * self.M[None, :, :]
+        all_M_grad = (M_decay - M_hebb) / self.tau[None, :, None]
+
+        self.tau.grad = torch.mean(all_tau_grad, 0)
+        self.W.grad = torch.mean(all_W_grad, 0)
+        self.M.grad = (torch.mean(all_M_grad, 0)).fill_diagonal_(0.0)
