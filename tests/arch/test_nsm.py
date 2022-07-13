@@ -219,11 +219,11 @@ def test_batch_grad(nsm, var):
 
     batch_grad = getattr(nsm, var).grad.detach().clone()
 
-    # reset the gradient
-    getattr(nsm, var).grad = None
-
     expected_grad_sum = 0
     for crt_x in x:
+        # reset the gradient
+        getattr(nsm, var).grad = None
+
         crt_y = nsm.forward(crt_x)
         nsm.backward(crt_x, crt_y)
         crt_grad = getattr(nsm, var).grad.detach().clone()
@@ -231,3 +231,28 @@ def test_batch_grad(nsm, var):
 
     n = len(x)
     assert torch.allclose(batch_grad, expected_grad_sum / n)
+
+
+@pytest.mark.parametrize("var", ["tau", "M", "W"])
+def test_backward_accumulates_gradients(nsm, var):
+    x = torch.FloatTensor([[-0.5, 0.3, 0.5, 1.2, 0.1], [1.5, 0.0, -0.3, 0.2, 0.1]])
+
+    indep_grads = []
+    for crt_x in x:
+        # reset the gradient
+        getattr(nsm, var).grad = None
+
+        crt_y = nsm.forward(crt_x)
+        nsm.backward(crt_x, crt_y)
+        indep_grads.append(getattr(nsm, var).grad)
+
+    # now do the same but don't reset every time
+    getattr(nsm, var).grad = None
+    for crt_x in x:
+        crt_y = nsm.forward(crt_x)
+        nsm.backward(crt_x, crt_y)
+
+    total_grad = getattr(nsm, var).grad
+    expected = sum(indep_grads)
+
+    assert torch.allclose(total_grad, expected)

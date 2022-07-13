@@ -119,6 +119,22 @@ class NSM(nn.Module):
         M_decay = sq_y[:, :, None] * self.M[None, :, :]
         all_M_grad = (M_decay - M_hebb) / self.tau[None, :, None]
 
-        self.tau.grad = torch.mean(all_tau_grad, 0)
-        self.W.grad = torch.mean(all_W_grad, 0)
-        self.M.grad = (torch.mean(all_M_grad, 0)).fill_diagonal_(0.0)
+        mean_tau_grad = torch.mean(all_tau_grad, 0)
+        mean_W_grad = torch.mean(all_W_grad, 0)
+        mean_M_grad = (torch.mean(all_M_grad, 0)).fill_diagonal_(0.0)
+
+        # either initialize gradients or add to them
+        if self.tau.grad is None:
+            self.tau.grad = mean_tau_grad
+        else:
+            self.tau.grad += mean_tau_grad
+
+        if self.W.grad is None:
+            self.W.grad = mean_W_grad
+        else:
+            self.W.grad += mean_W_grad
+
+        if self.M.grad is None:
+            self.M.grad = mean_M_grad
+        else:
+            self.M.grad += mean_M_grad
