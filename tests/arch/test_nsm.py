@@ -256,3 +256,10 @@ def test_backward_accumulates_gradients(nsm, var):
     expected = sum(indep_grads)
 
     assert torch.allclose(total_grad, expected)
+
+
+def test_ensure_forward_does_not_track_gradients(nsm):
+    x = torch.FloatTensor([1.0, -0.1, 2.0, 0.5, 0.3]).requires_grad_()
+    y = nsm.forward(x)
+
+    assert not y.requires_grad

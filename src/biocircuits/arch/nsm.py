@@ -87,11 +87,12 @@ class NSM(nn.Module):
 
             y_init = W @ x
         """
-        Wx = x @ self.W.T
+        with torch.no_grad():
+            Wx = x @ self.W.T
 
-        y = Wx
-        for _ in range(self.fast_iterations):
-            y = Wx - y @ self.M
+            y = Wx
+            for _ in range(self.fast_iterations):
+                y = Wx - y @ self.M
 
         return y
 
