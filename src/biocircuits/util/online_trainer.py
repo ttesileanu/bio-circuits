@@ -77,6 +77,9 @@ class TrainingBatch:
         for sched in schedulers:
             sched.step()
 
+        if trainer.log_output:
+            trainer.logger.log("output", out)
+
         return out
 
     def every(self, step: int) -> bool:
@@ -245,6 +248,8 @@ class OnlineTrainer:
         `TrainingBatch`
     :param schedulers: list of learning-rate schedulers; these are run for every
         training step; see `TrainingBatch`
+    :param log_output: if true, the output from `model.forward()` is automatically
+        logged under `"output"`
     """
 
     def __init__(
@@ -253,6 +258,7 @@ class OnlineTrainer:
         loader: Iterable,
         lr: Optional[float] = None,
         optim_kws: Optional[dict] = None,
+        log_output: bool = True,
     ):
         """Initialize the iterable, setting up optimizers and schedulers.
 
@@ -268,6 +274,8 @@ class OnlineTrainer:
         :param loader: the data to train on
         :param lr: learning rate to pass to `configure_optimizers()`, if not `None`
         :param optim_kws: keyword arguments to pass to `configure_optimizers()`
+        :param log_output: if true, the output from `model.forward()` is automatically
+            logged under `"output"`
         """
         self.model = model
         self.loader = loader
@@ -275,6 +283,7 @@ class OnlineTrainer:
         self.logger = Logger()
 
         self.terminating = False
+        self.log_output = log_output
 
         self._it = None
         self._i = 0

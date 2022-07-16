@@ -411,3 +411,22 @@ def test_optimizer_zero_grad_not_called_when_model_has_training_step(trainer_opt
 
     for optim in trainer_optim.optimizers:
         optim.zero_grad.assert_not_called()
+
+
+def test_outputs_logged(trainer):
+    a = torch.FloatTensor([0.1, -0.2, 0.3, 0.4])
+    trainer.model.forward.return_value = a
+    for batch in trainer:
+        batch.training_step()
+
+    assert "output" in trainer.logger.history
+    for out in trainer.logger["output"]:
+        np.testing.assert_allclose(out, a.numpy())
+
+
+def test_disabling_output_logging(trainer):
+    trainer.log_output = False
+    for batch in trainer:
+        batch.training_step()
+
+    assert "output" not in trainer.logger.history
