@@ -450,3 +450,7 @@ def test_output_with_nontrivial_batch_size(trainer):
     assert len(trainer.logger["output"]) == len(trainer) * len(a)
     for i, out in enumerate(trainer.logger["output"]):
         np.testing.assert_allclose(out, a[i % len(a)].numpy())
+
+
+def test_log_accesses_logger_history(trainer):
+    assert trainer.log is trainer.logger.history

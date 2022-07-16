@@ -239,6 +239,8 @@ class OnlineTrainer:
     the end of iteration, the logger's `finalize()` method is called to prepare the
     results for easy access. Note that `finalize()` will have to be called manually if
     the iteration is stopped for any other reason that reaching the end of the loader.
+    The logging results can be accessed either through the `logger` attribute, or more
+    directly through `self.log`, which is an alias for `self.logger.history`.
 
     Note that one can iterate over the trainer only once (even if the previous iteration
     did not finish). If a new iteration is attempted, `IndexError` is raised.
@@ -247,6 +249,7 @@ class OnlineTrainer:
     :param logger: `Logger` object used for keeping track of reported tensors; it is
         generally best to use `TrainingBatch.log` and related functions for logging, and
         reserve `logger` for reading out the logged data
+    :param log: direct access to `logger`'s history
     :param optimizers: list of optimizers; these are run for every training step; see
         `TrainingBatch`
     :param schedulers: list of learning-rate schedulers; these are run for every
@@ -284,6 +287,7 @@ class OnlineTrainer:
         self.loader = loader
 
         self.logger = Logger()
+        self.log = self.logger.history
 
         self.terminating = False
         self.log_output = log_output
