@@ -78,7 +78,10 @@ class TrainingBatch:
             sched.step()
 
         if trainer.log_output:
-            trainer.logger.log("output", out)
+            if hasattr(out, "__len__") and len(out) == len(self):
+                trainer.logger.log_batch("output", out)
+            else:
+                trainer.logger.log("output", out)
 
         return out
 

@@ -22,7 +22,7 @@ def loader():
 
 @pytest.fixture
 def trainer(loader):
-    net = SimpleNamespace(forward=Mock(return_value=torch.zeros(4)), backward=Mock())
+    net = SimpleNamespace(forward=Mock(return_value=torch.zeros(4, 4)), backward=Mock())
     trainer = OnlineTrainer(net, loader)
     return trainer
 
@@ -30,7 +30,7 @@ def trainer(loader):
 @pytest.fixture
 def net_optim():
     return SimpleNamespace(
-        forward=Mock(return_value=torch.zeros(4)),
+        forward=Mock(return_value=torch.zeros(4, 4)),
         backward=Mock(),
         configure_optimizers=Mock(return_value=([Mock()], [Mock()])),
     )
@@ -44,9 +44,7 @@ def trainer_optim(net_optim, loader):
 
 @pytest.fixture()
 def sample_history(loader) -> SimpleNamespace:
-    net = SimpleNamespace(
-        forward=Mock(return_value=torch.FloatTensor([0.0, 0.0])), backward=Mock()
-    )
+    net = SimpleNamespace(forward=Mock(return_value=np.zeros((4, 2))), backward=Mock())
 
     loader = generate_loader(dim=3, batch_size=4, n_batches=25)
     trainer = OnlineTrainer(net, loader)
@@ -413,9 +411,12 @@ def test_optimizer_zero_grad_not_called_when_model_has_training_step(trainer_opt
         optim.zero_grad.assert_not_called()
 
 
-def test_outputs_logged(trainer):
-    a = torch.FloatTensor([0.1, -0.2, 0.3, 0.4])
-    trainer.model.forward.return_value = a
+def test_outputs_logged_batch_size_one(trainer):
+    a = torch.FloatTensor([0.1, -0.2, 0.3])
+
+    loader = generate_loader(dim=3, batch_size=1, n_batches=50)
+    net = SimpleNamespace(forward=Mock(return_value=a), backward=Mock())
+    trainer = OnlineTrainer(net, loader)
     for batch in trainer:
         batch.training_step()
 
@@ -430,3 +431,22 @@ def test_disabling_output_logging(trainer):
         batch.training_step()
 
     assert "output" not in trainer.logger.history
+
+
+def test_output_with_nontrivial_batch_size(trainer):
+    a = torch.FloatTensor(
+        [
+            [0.1, -0.2, 0.3, 0.4],
+            [0.2, -0.1, 0.4, 0.2],
+            [0.3, -0.0, 0.5, 0.4],
+            [0.4, 0.1, 0.4, 0.2],
+        ]
+    )
+    trainer.model.forward.return_value = a
+    for batch in trainer:
+        batch.training_step()
+
+    assert "output" in trainer.logger.history
+    assert len(trainer.logger["output"]) == len(trainer) * len(a)
+    for i, out in enumerate(trainer.logger["output"]):
+        np.testing.assert_allclose(out, a[i % len(a)].numpy())
