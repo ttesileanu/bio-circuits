@@ -263,3 +263,34 @@ def test_ensure_forward_does_not_track_gradients(nsm):
     y = nsm.forward(x)
 
     assert not y.requires_grad
+
+
+def test_configure_optimizer_returns_an_sgd_optimizer_and_no_scheduler(nsm):
+    optimizers, schedulers = nsm.configure_optimizers()
+
+    assert len(optimizers) == 1
+    assert len(schedulers) == 0
+
+    assert isinstance(optimizers[0], torch.optim.SGD)
+
+
+def test_configure_optimizer_default_lr_is_one(nsm):
+    optimizers, _ = nsm.configure_optimizers()
+    assert pytest.approx(optimizers[0].param_groups[0]["lr"]) == 1.0
+
+
+def test_configure_optimizer_one_param_group(nsm):
+    optimizers, _ = nsm.configure_optimizers()
+    assert len(optimizers[0].param_groups) == 1
+
+
+def test_configure_optimizer_lr(nsm):
+    lr = 0.05
+    optimizers, _ = nsm.configure_optimizers(lr=lr)
+    assert pytest.approx(optimizers[0].param_groups[0]["lr"]) == lr
+
+
+def test_configure_optimizer_other_kwargs(nsm):
+    momentum = 0.05
+    optimizers, _ = nsm.configure_optimizers(momentum=momentum)
+    assert pytest.approx(optimizers[0].param_groups[0]["momentum"]) == momentum

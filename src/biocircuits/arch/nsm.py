@@ -2,7 +2,7 @@ import numpy as np
 import torch
 from torch import nn
 
-from typing import Union, Sequence
+from typing import Union, Sequence, Tuple, List
 
 
 class NSM(nn.Module):
@@ -139,3 +139,16 @@ class NSM(nn.Module):
             self.M.grad = mean_M_grad
         else:
             self.M.grad += mean_M_grad
+
+    def configure_optimizers(
+        self, lr: float = 1.0, **kwargs
+    ) -> Tuple[List[torch.optim.Optimizer], List]:
+        """Create an optimizer.
+
+        This is a `torch.optim.SGD` instance.
+
+        :param lr: learning rate
+        :param **kwargs: additional arguments to be passed to `torch.optim.SGD`
+        """
+        optimizer = torch.optim.SGD(self.parameters(), lr=lr, **kwargs)
+        return [optimizer], []
