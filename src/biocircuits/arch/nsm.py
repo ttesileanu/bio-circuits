@@ -159,10 +159,14 @@ class NSM(nn.Module):
     ) -> Tuple[List[torch.optim.Optimizer], List]:
         """Create an optimizer.
 
-        This is a `torch.optim.SGD` instance.
+        This algorithm is derived based on a recurrence formula. As such, the only
+        optimizer that makes sense is SGD with a learning rate of 1. An attempt to alter
+        the learning rate leads to a `ValueError`.
 
-        :param lr: learning rate
+        :param lr: learning rate -- needs to stay equal to 1.0
         :param **kwargs: additional arguments to be passed to `torch.optim.SGD`
         """
+        if lr != 1.0:
+            raise ValueError("lr needs to equal 1.0 for NSM")
         optimizer = torch.optim.SGD(self.parameters(), lr=lr, **kwargs)
         return [optimizer], []

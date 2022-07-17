@@ -285,9 +285,8 @@ def test_configure_optimizer_one_param_group(nsm):
 
 
 def test_configure_optimizer_lr(nsm):
-    lr = 0.05
-    optimizers, _ = nsm.configure_optimizers(lr=lr)
-    assert pytest.approx(optimizers[0].param_groups[0]["lr"]) == lr
+    with pytest.raises(ValueError):
+        nsm.configure_optimizers(lr=0.05)
 
 
 def test_configure_optimizer_other_kwargs(nsm):
