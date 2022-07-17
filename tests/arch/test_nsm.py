@@ -352,3 +352,29 @@ def test_tau_trains_to_sum_of_y_squared(nsm, data):
     expected_tau = sum(out**2)
 
     assert torch.allclose(nsm.tau, expected_tau)
+
+
+def test_one_fast_iteration_relu():
+    results = []
+    n_it0 = 5
+
+    x = torch.FloatTensor([-0.1, 0.3, 0.5, 0.2, 0.4])
+    for n_it in range(n_it0, n_it0 + 2):
+        torch.manual_seed(1)
+        nsm = NSM(5, 3, activation="relu")
+
+        nsm.fast_iterations = n_it
+
+        # use a non-trivial M...
+        m = torch.zeros_like(nsm.M)
+        torch.nn.init.xavier_uniform_(m)
+        # but make sure it's symmetric and has zeros on diagonal
+        m = 0.5 * (m + m.T)
+        m -= torch.diag(torch.diag(m))
+        nsm.M = torch.nn.Parameter(m)
+
+        results.append(nsm.forward(x))
+
+    y_exp = (nsm.W @ x - nsm.M @ results[0]).clip_(min=0)
+
+    assert torch.allclose(results[1], y_exp)

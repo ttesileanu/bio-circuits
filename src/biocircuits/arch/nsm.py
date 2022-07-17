@@ -33,6 +33,7 @@ class NSM(nn.Module):
         output_dim: int,
         tau: Union[float, np.ndarray, torch.Tensor, Sequence] = 1.0,
         fast_iterations: int = 100,
+        activation: str = "linear",
     ):
         """Initialize the similarity matching circuit.
 
@@ -40,12 +41,14 @@ class NSM(nn.Module):
         :param output_dim: dimension of output samples
         :param tau: initial value(s) for the sum of squared outputs
         :param fast_iterations: number of fast-dynamics iterations
+        :param activation: activation function; can be `"linear"` or `"relu"`
         """
         super().__init__()
 
         self.input_dim = input_dim
         self.output_dim = output_dim
         self.fast_iterations = fast_iterations
+        self.activation = activation
 
         self.W = nn.Parameter(torch.empty(self.output_dim, self.input_dim))
         self.M = nn.Parameter(torch.zeros(self.output_dim, self.output_dim))
@@ -93,6 +96,8 @@ class NSM(nn.Module):
             y = Wx
             for _ in range(self.fast_iterations):
                 y = Wx - y @ self.M
+                if self.activation == "relu":
+                    y.clip_(min=0)
 
         return y
 
