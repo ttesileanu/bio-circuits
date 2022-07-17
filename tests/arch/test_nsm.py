@@ -13,6 +13,17 @@ def nsm():
     return model
 
 
+@pytest.fixture
+def data():
+    return torch.FloatTensor(
+        [
+            [-0.5, 0.3, 0.5, 1.2, 0.1],
+            [1.5, 0.0, -0.3, 0.2, 0.1],
+            [0.5, -0.3, 1.3, 0.2, -0.1],
+        ]
+    )
+
+
 def test_initial_m_tilde_is_symmetric(nsm):
     # this is a bit trivial because right now initial m_tilde is zero!
     # m_tilde[i, j] = m[i, j] * tau[i] for i \ne j
@@ -208,14 +219,8 @@ def test_grad_m(nsm):
 
 
 @pytest.mark.parametrize("var", ["tau", "M", "W"])
-def test_batch_grad(nsm, var):
-    x = torch.FloatTensor(
-        [
-            [-0.5, 0.3, 0.5, 1.2, 0.1],
-            [1.5, 0.0, -0.3, 0.2, 0.1],
-            [0.5, -0.3, 1.3, 0.2, -0.1],
-        ]
-    )
+def test_batch_grad(nsm, var, data):
+    x = data
     y = nsm.forward(x)
     nsm.backward(x, y)
 
@@ -293,3 +298,57 @@ def test_configure_optimizer_other_kwargs(nsm):
     momentum = 0.05
     optimizers, _ = nsm.configure_optimizers(momentum=momentum)
     assert pytest.approx(optimizers[0].param_groups[0]["momentum"]) == momentum
+
+
+def test_w_tilde_trains_to_sum_of_y_x(nsm, data):
+    nsm.W = torch.nn.Parameter(torch.zeros_like(nsm.W))
+
+    optimizers, _ = nsm.configure_optimizers()
+    optimizer = optimizers[0]
+
+    out = data[:, : nsm.output_dim]
+    for x, y in zip(data, out):
+        optimizer.zero_grad()
+        nsm.backward(x, y)
+        optimizer.step()
+
+    w_tilde = nsm.tau[:, None] * nsm.W
+    expected_w_tilde = sum(out[:, :, None] @ data[:, None, :])
+
+    assert torch.allclose(w_tilde, expected_w_tilde)
+
+
+def test_m_tilde_trains_to_sum_of_y_y(nsm, data):
+    nsm.tau = torch.nn.Parameter(torch.zeros_like(nsm.tau))
+    nsm.M = torch.nn.Parameter(torch.zeros_like(nsm.M))
+
+    optimizers, _ = nsm.configure_optimizers()
+    optimizer = optimizers[0]
+
+    out = 0.3 * data[:, : nsm.output_dim] - 0.5
+    for x, y in zip(data, out):
+        optimizer.zero_grad()
+        nsm.backward(x, y)
+        optimizer.step()
+
+    m_tilde = nsm.tau[:, None] * nsm.M + torch.diag(nsm.tau)
+    expected_m_tilde = sum(out[:, :, None] @ out[:, None, :])
+
+    assert torch.allclose(m_tilde, expected_m_tilde)
+
+
+def test_tau_trains_to_sum_of_y_squared(nsm, data):
+    nsm.tau = torch.nn.Parameter(torch.zeros_like(nsm.tau))
+
+    optimizers, _ = nsm.configure_optimizers()
+    optimizer = optimizers[0]
+
+    out = -0.5 * data[:, : nsm.output_dim] + 0.1
+    for x, y in zip(data, out):
+        optimizer.zero_grad()
+        nsm.backward(x, y)
+        optimizer.step()
+
+    expected_tau = sum(out**2)
+
+    assert torch.allclose(nsm.tau, expected_tau)
