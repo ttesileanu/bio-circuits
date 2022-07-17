@@ -163,6 +163,9 @@ class NSM(nn.Module):
         optimizer that makes sense is SGD with a learning rate of 1. An attempt to alter
         the learning rate leads to a `ValueError`.
 
+        To change the initial learning rate, set the initial `tau`, which acts as an
+        inverse learning rate.
+
         :param lr: learning rate -- needs to stay equal to 1.0
         :param **kwargs: additional arguments to be passed to `torch.optim.SGD`
         """
