@@ -185,9 +185,10 @@ def test_grad_w(nsm):
     y = nsm.forward(x)
     nsm.backward(x, y)
 
+    new_tau = nsm.tau + y**2
     for i in range(nsm.output_dim):
         for j in range(nsm.input_dim):
-            expected = y[i] * (nsm.W[i, j] * y[i] - x[j]) / nsm.tau[i]
+            expected = y[i] * (nsm.W[i, j] * y[i] - x[j]) / new_tau[i]
             assert torch.allclose(nsm.W.grad[i, j], expected)
 
 
@@ -196,12 +197,13 @@ def test_grad_m(nsm):
     y = nsm.forward(x)
     nsm.backward(x, y)
 
+    new_tau = nsm.tau + y**2
     for i in range(nsm.output_dim):
         for j in range(nsm.output_dim):
             if i == j:
                 expected = torch.tensor(0.0)
             else:
-                expected = y[i] * (nsm.M[i, j] * y[i] - y[j]) / nsm.tau[i]
+                expected = y[i] * (nsm.M[i, j] * y[i] - y[j]) / new_tau[i]
             assert torch.allclose(nsm.M.grad[i, j], expected)
 
 
@@ -217,20 +219,18 @@ def test_batch_grad(nsm, var):
     y = nsm.forward(x)
     nsm.backward(x, y)
 
+    initial = getattr(nsm, var).detach().clone()
     batch_grad = getattr(nsm, var).grad.detach().clone()
 
-    expected_grad_sum = 0
-    for crt_x in x:
-        # reset the gradient
-        getattr(nsm, var).grad = None
+    optimizer = torch.optim.SGD(nsm.parameters(), lr=1.0)
 
-        crt_y = nsm.forward(crt_x)
+    for crt_x, crt_y in zip(x, y):
+        optimizer.zero_grad()
         nsm.backward(crt_x, crt_y)
-        crt_grad = getattr(nsm, var).grad.detach().clone()
-        expected_grad_sum = expected_grad_sum + crt_grad
+        optimizer.step()
 
-    n = len(x)
-    assert torch.allclose(batch_grad, expected_grad_sum / n)
+    expected_change = getattr(nsm, var) - initial
+    assert torch.allclose(expected_change, -batch_grad)
 
 
 @pytest.mark.parametrize("var", ["tau", "M", "W"])

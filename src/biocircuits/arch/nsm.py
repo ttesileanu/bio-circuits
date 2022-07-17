@@ -97,7 +97,19 @@ class NSM(nn.Module):
         return y
 
     def backward(self, x: torch.Tensor, y: torch.Tensor):
-        """Accumulate gradients given input and output from forward."""
+        """Accumulate gradients given input and output from forward.
+
+        Since this is derived as an online algorithm, having a batch size larger than 1
+        is not very meaningful. This implementation is written such that passing a batch
+        of `x` and `y` leads to weight updates that are equivalent to passing the same
+        `x` and `y` samples each pair at a time. This is similar to the case of a
+        typical loss-based neural net when the `reduction` is set to `"sum"`.
+
+        *Note, however, that this is not the same as passing the same inputs `x` to the
+        network one by one!* The weights would change after each processed sample,
+        leading to a different set of `y`. This effect should be negligible late in
+        training but could be important early on.
+        """
         assert x.ndim == y.ndim
 
         if y.ndim == 1:
@@ -112,33 +124,35 @@ class NSM(nn.Module):
         sq_y = y**2
         all_tau_grad = -sq_y
 
+        new_tau = (self.tau + torch.sum(sq_y, 0))[None, :, None]
+
         W_hebb = y[:, :, None] @ x[:, None, :]
         W_decay = sq_y[:, :, None] * self.W[None, :, :]
-        all_W_grad = (W_decay - W_hebb) / self.tau[None, :, None]
+        all_W_grad = (W_decay - W_hebb) / new_tau
 
         M_hebb = y[:, :, None] @ y[:, None, :]
         M_decay = sq_y[:, :, None] * self.M[None, :, :]
-        all_M_grad = (M_decay - M_hebb) / self.tau[None, :, None]
+        all_M_grad = (M_decay - M_hebb) / new_tau
 
-        mean_tau_grad = torch.mean(all_tau_grad, 0)
-        mean_W_grad = torch.mean(all_W_grad, 0)
-        mean_M_grad = (torch.mean(all_M_grad, 0)).fill_diagonal_(0.0)
+        sum_tau_grad = torch.sum(all_tau_grad, 0)
+        sum_W_grad = torch.sum(all_W_grad, 0)
+        sum_M_grad = (torch.sum(all_M_grad, 0)).fill_diagonal_(0.0)
 
         # either initialize gradients or add to them
         if self.tau.grad is None:
-            self.tau.grad = mean_tau_grad
+            self.tau.grad = sum_tau_grad
         else:
-            self.tau.grad += mean_tau_grad
+            self.tau.grad += sum_tau_grad
 
         if self.W.grad is None:
-            self.W.grad = mean_W_grad
+            self.W.grad = sum_W_grad
         else:
-            self.W.grad += mean_W_grad
+            self.W.grad += sum_W_grad
 
         if self.M.grad is None:
-            self.M.grad = mean_M_grad
+            self.M.grad = sum_M_grad
         else:
-            self.M.grad += mean_M_grad
+            self.M.grad += sum_M_grad
 
     def configure_optimizers(
         self, lr: float = 1.0, **kwargs
