@@ -12,7 +12,7 @@ from torchvision.datasets import MNIST
 import biocircuits as bio
 
 # %% [markdown]
-# ## Make a dataset
+# ## Make a dataset -- multivariate Gaussian
 
 # %%
 torch.manual_seed(0)
@@ -26,6 +26,9 @@ samples = gaussian.sample(n_samples)
 with dv.FigureManager() as (_, ax):
     ax.scatter(samples[:, 0].numpy(), samples[:, 1].numpy(), s=2, alpha=0.05)
 
+# %% [markdown]
+# ## Run similarity matching on the data
+
 # %%
 dataset = torch.utils.data.TensorDataset(samples)
 # dataloader = torch.utils.data.DataLoader(dataset, batch_size=8)
@@ -36,21 +39,37 @@ model = bio.arch.NSM(samples.shape[1], output_dim, tau=100)
 trainer = bio.OnlineTrainer(model, dataloader)
 for batch in tqdm.tqdm(trainer):
     batch.training_step()
-    if batch.every(5):
+    if batch.every(10):
         batch.log("w", model.W)
+        batch.log("m", model.M)
 
 # %% [markdown]
-# Show weight evolution
+## Show results
 
 # %%
-with dv.FigureManager() as (_, ax):
-    ax.plot(
+with dv.FigureManager(1, 2) as (fig, (ax1, ax2)):
+    ax1.plot(
         trainer.log["w.sample"],
         np.reshape(trainer.log["w"], (-1, model.input_dim * model.output_dim)),
-        lw=0.75,
+        lw=0.25,
     )
-    ax.set_xlabel("sample")
-    ax.set_ylabel("weight")
+    ax1.set_xlabel("sample")
+    ax1.set_ylabel("weight")
+    ax1.set_title("feedforward weights")
+
+    ax2.plot(
+        trainer.log["m.sample"],
+        np.reshape(trainer.log["m"], (-1, model.output_dim * model.output_dim)),
+        lw=0.25,
+    )
+    ax2.set_xlabel("sample")
+    ax2.set_ylabel("weight")
+    ax2.set_title("lateral weights")
+
+    fig.suptitle("Weight evolution")
+
+# %% [markdown]
+# Calculate loss function in rolling window.
 
 # %%
 window_size = 1000
