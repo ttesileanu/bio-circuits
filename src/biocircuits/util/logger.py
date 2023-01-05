@@ -48,7 +48,7 @@ class Logger:
             [torch.FloatTensor([1.0, 2.0, 3.0])] .
 
         Multiple values can be recorded at once by using a `dict` as first argument:
-            logger.test.report(1, {"foo": 2, "bar": 3})
+            logger.log({"foo": 2, "bar": 3})
 
         :param key: name assigned to stored value, or dictionary `{name: value}`
         :param value: value to store; needed unless `key` is a `dict`
