@@ -8,10 +8,45 @@ from biocircuits.arch.base import BaseOnlineModel
 from typing import Optional
 
 
+class NopModel(BaseOnlineModel):
+    def __init__(self):
+        super().__init__()
+        self.training_impl_called = False
+        self.test_impl_called = False
+
+    def training_step_impl(self, batch):
+        self.training_impl_called = True
+
+    def test_step_impl(self, batch):
+        self.test_impl_called = True
+
+
 @pytest.fixture
 def model():
-    res = BaseOnlineModel()
+    res = NopModel()
     return res
+
+
+def test_calling_training_step_on_base_class_raises():
+    base = BaseOnlineModel()
+    with pytest.raises(NotImplementedError):
+        base.training_step([])
+
+
+def test_calling_test_step_on_base_class_raises():
+    base = BaseOnlineModel()
+    with pytest.raises(NotImplementedError):
+        base.test_step([])
+
+
+def test_training_step_calls_impl(model):
+    model.training_step([])
+    assert model.training_impl_called
+
+
+def test_test_step_calls_impl(model):
+    model.test_step([])
+    assert model.test_impl_called
 
 
 def test_inherits_from_module(model):
@@ -76,9 +111,8 @@ def test_test_step_logs_nothing_by_default(model):
 
 
 class LoggingModel(BaseOnlineModel):
-    def training_step(self, batch: torch.Tensor) -> Optional[torch.Tensor]:
+    def training_step_impl(self, batch: torch.Tensor) -> Optional[torch.Tensor]:
         self.log("foo", 1.0)
-        super().training_step(batch)
 
 
 def test_training_step_logs_indices_if_anything_was_logged_since_last_step():
@@ -99,3 +133,7 @@ def test_training_step_logs_indices_if_anything_was_logged_since_last_step():
 
 def test_log_fails_silently_if_logger_is_not_set(model):
     model.log("key", 3.0)
+
+
+def test_init_creates_empty_optimizer_list(model):
+    assert len(model.optimizers) == 0
