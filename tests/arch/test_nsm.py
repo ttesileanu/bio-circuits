@@ -3,6 +3,7 @@ import pytest
 import torch
 import numpy as np
 
+from biocircuits.arch.base import BaseOnlineModel
 from biocircuits.arch.nsm import NSM
 
 
@@ -22,6 +23,10 @@ def data():
             [0.5, -0.3, 1.3, 0.2, -0.1],
         ]
     )
+
+
+def test_nsm_inherits_from_online_model(nsm):
+    assert isinstance(nsm, BaseOnlineModel)
 
 
 def test_initial_m_tilde_is_symmetric(nsm):
@@ -378,3 +383,30 @@ def test_one_fast_iteration_relu():
     y_exp = (nsm.W @ x - nsm.M @ results[0]).clip_(min=0)
 
     assert torch.allclose(results[1], y_exp)
+
+
+def test_test_step_returns_output_of_forward_call(nsm, data):
+    output = nsm.test_step(data)
+    expected = nsm(data)
+
+    assert torch.allclose(output, expected)
+
+
+def test_training_step_returns_output_of_forward_call_before_update(nsm, data):
+    nsm.configure_optimizers()
+
+    expected = nsm(data)
+    output = nsm.training_step(data)
+
+    assert torch.allclose(output, expected)
+
+
+def test_training_step_updates_weights(nsm, data):
+    nsm.configure_optimizers()
+
+    W0 = nsm.W.detach().clone()
+    M0 = nsm.M.detach().clone()
+    nsm.training_step(data)
+
+    assert torch.max(torch.abs(W0 - nsm.W)) > 1e-3
+    assert torch.max(torch.abs(M0 - nsm.M)) > 1e-3

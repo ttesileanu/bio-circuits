@@ -2,10 +2,11 @@ import numpy as np
 import torch
 from torch import nn
 
+from .base import BaseOnlineModel
 from typing import Union, Sequence, Tuple, List
 
 
-class NSM(nn.Module):
+class NSM(BaseOnlineModel):
     """Implementation of the biologically plausible online similarity matching
     algorithm.
 
@@ -177,4 +178,22 @@ class NSM(nn.Module):
         if lr != 1.0:
             raise ValueError("lr needs to equal 1.0 for NSM")
         optimizer = torch.optim.SGD(self.parameters(), lr=lr, **kwargs)
+
+        self.optimizers = [optimizer]
         return [optimizer], []
+
+    def training_step_impl(self, x: torch.Tensor) -> torch.Tensor:
+        out = self(x)
+        for tensor in self.parameters():
+            tensor.grad = None
+
+        self.backward(x, out)
+
+        for optimizer in self.optimizers:
+            optimizer.step()
+
+        return out
+
+    def test_step_impl(self, x: torch.Tensor) -> torch.Tensor:
+        out = self(x)
+        return out
