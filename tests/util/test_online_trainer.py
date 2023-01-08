@@ -20,6 +20,14 @@ class DefaultModel(BaseOnlineModel):
         pass
 
 
+class ModelWithOutput(BaseOnlineModel):
+    def training_step_impl(self, batch: torch.Tensor) -> torch.Tensor:
+        return torch.FloatTensor([1.0, 2.0, 3.0])
+
+    def test_step_impl(self, batch: torch.Tensor) -> torch.Tensor:
+        return torch.FloatTensor([1.0, 2.0, -3.0])
+
+
 class Callback(BaseCallback):
     def __init__(self, model, *args, output: bool = True, **kwargs):
         super().__init__(*args, **kwargs)
@@ -210,3 +218,29 @@ def test_trainer_repr(default_trainer, kind):
     s = {"repr": repr, "str": str}[kind](default_trainer)
     assert s.startswith("OnlineTrainer(")
     assert s.endswith(")")
+
+
+def test_fit_returns_list_of_outputs(default_trainer, loader):
+    model = ModelWithOutput()
+    output = default_trainer.fit(model, loader)
+    assert output is not None
+    assert len(output) == len(loader)
+
+
+def test_fit_returns_none_when_training_step_returns_none(default_trainer, loader):
+    model = DefaultModel()
+    output = default_trainer.fit(model, loader)
+    assert output is None
+
+
+def test_predict_returns_list_of_outputs(default_trainer, loader):
+    model = ModelWithOutput()
+    output = default_trainer.predict(model, loader)
+    assert output is not None
+    assert len(output) == len(loader)
+
+
+def test_predict_returns_none_when_training_step_returns_none(default_trainer, loader):
+    model = DefaultModel()
+    output = default_trainer.predict(model, loader)
+    assert output is None

@@ -1,7 +1,7 @@
 import torch
 
 from collections import defaultdict
-from typing import Iterable, Any, Union, Optional, List, Callable, Dict
+from typing import Iterable, Union, Optional, List, Callable, Dict, Optional
 
 from .logger import Logger
 from ..util.callbacks import BaseCallback
@@ -25,16 +25,20 @@ class OnlineTrainer:
 
     def fit(
         self, model: BaseOnlineModel, loader: Iterable, finalize_logger: bool = True
-    ):
+    ) -> Optional[List[torch.Tensor]]:
         """Train a model on a dataset.
 
         :param model: model to train
         :param loader: iterable used to generate training batches
         :param finalize_logger: whether to call `finalize()` on the logger at the end of
             training
+        :return: a tensor containing all outputs from `training_step`, or `None` if
+            there is no output
         """
         callbacks = self._callbacks_by_scope("training")
         assert len(callbacks["pre_progress"]) == 0
+
+        outputs = None
 
         model.trainer = self
         for batch in loader:
@@ -49,7 +53,13 @@ class OnlineTrainer:
             if stopping:
                 break
 
-            model.training_step(batch)
+            crt_output = model.training_step(batch)
+            if crt_output is not None:
+                if outputs is None:
+                    outputs = []
+                outputs.append(crt_output)
+            elif outputs is not None:
+                outputs.append(crt_output)
 
             for callback in callbacks["post_progress"]:
                 # XXX implement progress reporting
@@ -68,9 +78,22 @@ class OnlineTrainer:
         if finalize_logger:
             self.logger.finalize()
 
-    def predict(self, model: BaseOnlineModel, loader: Iterable):
+        return outputs
+
+    def predict(
+        self, model: BaseOnlineModel, loader: Iterable
+    ) -> Optional[List[torch.Tensor]]:
+        """Run inference using the model on the dataset.
+
+        :param model: model to use for inference
+        :param loader: iterable used to generate test batches
+        :return: a tensor containing all outputs from `test_step`, or `None` if there is
+            no output
+        """
         callbacks = self._callbacks_by_scope("test")
         assert len(callbacks["pre_progress"]) == 0
+
+        outputs = None
 
         model.trainer = self
         for batch in loader:
@@ -85,7 +108,13 @@ class OnlineTrainer:
             if stopping:
                 break
 
-            model.test_step(batch)
+            crt_output = model.test_step(batch)
+            if crt_output is not None:
+                if outputs is None:
+                    outputs = []
+                outputs.append(crt_output)
+            elif outputs is not None:
+                outputs.append(crt_output)
 
             for callback in callbacks["post_progress"]:
                 # XXX implement progress reporting
@@ -100,6 +129,8 @@ class OnlineTrainer:
                     break
             if stopping:
                 break
+
+        return outputs
 
     def _callbacks_by_scope(self, scope: str) -> Dict[str, BaseCallback]:
         """Get the callbacks with the given scope, split depending on intent and when
