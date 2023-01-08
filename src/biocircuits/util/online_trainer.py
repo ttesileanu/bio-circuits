@@ -1,357 +1,127 @@
 import torch
 
-from typing import Iterable, Any, Union, Optional
+from collections import defaultdict
+from typing import Iterable, Any, Union, Optional, List, Callable, Dict
 
 from .logger import Logger
-
-
-class TrainingBatch:
-    """Handle for one training batch.
-
-    This helps train a network and can also help with logging. The batch object has
-    `log`, `log_batch`, and `log_accumulated` methods that mirror those of a `Logger`.
-    In addition to calling the corresponding `Logger` methods, these also log sample
-    information using names obtained by adding `".sample"` to the `key`.
-
-    The batch object also has methods `accumulate` and `calculate_accumulated` that
-    simply call the corresponding `Logger` methods.
-
-    Note that all logging-related methods return the *batch* as opposed to the logger.
-
-    Attributes:
-    :param data: batch data
-    :param idx: batch index
-    :param sample_idx: sample index for the start of the batch
-    :param trainer: trainer iterable that the batch came from
-    """
-
-    def __init__(
-        self,
-        data: torch.Tensor,
-        idx: int,
-        sample_idx: int,
-        trainer: "OnlineTrainer",
-    ):
-        self.data = data
-        n = len(self.data[0])
-        for crt in self.data[1:]:
-            assert len(crt) == n
-
-        self.idx = idx
-        self.sample_idx = sample_idx
-        self.trainer = trainer
-
-        self._model = trainer.model
-        self._logger = trainer.logger
-
-    def training_step(self) -> Any:
-        """Run one training step, returning the output.
-
-        If the model has a method `model.training_step()`, then this is called and its
-        output returned. Otherwise, `model.forward()` is called, followed by
-        `optim.zero_grad()` for all optimizers in `self.optimizers`, and finally
-        `model.backward()`.
-
-        Next, optimizers are called in the order from `self.trainer.optimizers`, and
-        then the schedulers in the order from `self.trainer.schedulers`.
-
-        The output from `forward()` is returned.
-        """
-        model = self._model
-        trainer = self.trainer
-        optimizers = trainer.optimizers
-        schedulers = trainer.schedulers
-
-        if hasattr(model, "training_step"):
-            out = model.training_step(self)
-        else:
-            out = model.forward(*self.data)
-
-            for optim in optimizers:
-                optim.zero_grad()
-
-            model.backward(*self.data, out)
-
-        for optim in optimizers:
-            optim.step()
-        for sched in schedulers:
-            sched.step()
-
-        if trainer.log_output:
-            if hasattr(out, "__len__") and len(out) == len(self):
-                trainer.logger.log_batch("output", out)
-            else:
-                trainer.logger.log("output", out)
-
-        return out
-
-    def every(self, step: int) -> bool:
-        """Return true every `step` steps."""
-        return self.idx % step == 0
-
-    def count(self, total: int) -> bool:
-        """Return true a total of `total` times.
-
-        Including first and last batch.
-        """
-        # should be true when batch = floor(k * (n - 1) / (total - 1)) for integer k
-        # this implies (batch * (total - 1)) % (n - 1) == 0 or > (n - total).
-        if total == 1:
-            return self.idx == 0
-        else:
-            n = len(self.trainer.loader)
-            mod = (self.idx * (total - 1)) % (n - 1)
-            return mod == 0 or mod > n - total
-
-    def terminate(self):
-        """Terminate the run early.
-
-        Note that this does not stop the iteration instantly, but instead ends it the
-        first time a new batch is requested. Put differently, the remaining of the `for`
-        loop will still be run before it terminates.
-        """
-        self.trainer.terminating = True
-
-    def log(
-        self,
-        key: Union[str, dict],
-        value: Optional[Any] = None,
-        index_prefix: Optional[str] = None,
-    ) -> "TrainingBatch":
-        """Log a value or set of values.
-
-        In addition to calling `Logger.log()` for the given key-value combination, this
-        also records the associated sample index in a key named `f"{key}.sample"`.
-
-        :param key: key to log in, or dictionary of key-value pairs
-        :param value: value to log; needed if `key` is not a `dict`
-        :param index_prefix: key prefix to use for storing sample index; this is most
-            useful if `key` is a `dict` as only one key is used for storing sample
-            indices
-        :return: self (NB: not the logger!).
-        """
-        self._logger.log(key, value)
-
-        if index_prefix is not None:
-            self._logger.log(f"{index_prefix}.sample", self.sample_idx)
-        elif isinstance(key, str):
-            self._logger.log(f"{key}.sample", self.sample_idx)
-        else:
-            for crt in key:
-                self._logger.log(f"{crt}.sample", self.sample_idx)
-
-        return self
-
-    def log_batch(
-        self,
-        key: Union[str, dict],
-        value: Optional[Any] = None,
-        index_prefix: Optional[str] = None,
-    ) -> "TrainingBatch":
-        """Log a batch of values.
-
-        In addition to calling `Logger.log()` for the given key-value combination, this
-        also records the associated sample indices in a key named `f"{key}.sample"`.
-
-        Note that the batch size is based on `self.data`, not on the shape of the logged
-        values! It is the user's responsibility to make sure that these match.
-
-        :param key: key to log in, or dictionary of key-value pairs
-        :param value: value to log; needed if `key` is not a `dict`
-        :param index_prefix: key prefix to use for storing sample index; this is most
-            useful if `key` is a `dict` as only one key is used for storing sample
-            indices
-        :return: self (NB: not the logger!).
-        """
-        self._logger.log(key, value)
-
-        samples = self.sample_idx + torch.arange(len(self))
-        if index_prefix is not None:
-            self._logger.log(f"{index_prefix}.sample", self.sample_idx)
-        elif isinstance(key, str):
-            self._logger.log_batch(f"{key}.sample", samples)
-        else:
-            for crt in key:
-                self._logger.log_batch(f"{crt}.sample", samples)
-        return self
-
-    def accumulate(
-        self, key: Union[str, dict], value: Optional[Any] = None
-    ) -> "TrainingBatch":
-        """Accumulate values to log later.
-
-        This simply calls `Logger.accumulate()`.
-        """
-        self._logger.accumulate(key, value)
-        return self
-
-    def calculate_accumulated(self, key: str) -> Any:
-        """Average all accumulated values for a given key.
-
-        This simply calls `Logger.calculate_accumulated()`.
-        """
-        return self._logger.calculate_accumulated(key)
-
-    def log_accumulated(self, index_prefix: Optional[str] = None) -> "TrainingBatch":
-        """Store accumulated values.
-
-        In addition to calling `Logger.log()` for all accumulated keys, this also
-        records the associated sample indices in keys named `f"{key}.sample"`.
-
-        :param index_prefix: key prefix to use for storing sample index; this is most
-            useful if `key` is a `dict` as only one key is used for storing sample
-            indices
-        :return: self (NB: not the logger!).
-        """
-        keys = list(self._logger._accumulator.keys())
-        self._logger.log_accumulated()
-
-        if index_prefix is not None:
-            self._logger.log(f"{index_prefix}.sample", self.sample_idx)
-        else:
-            for key in keys:
-                self._logger.log(f"{key}.sample", self.sample_idx)
-
-        return self
-
-    def __len__(self) -> int:
-        """Number of samples in batch."""
-        return len(self.data[0])
-
-    def __repr__(self) -> str:
-        s = (
-            f"TrainingBatch("
-            f"data={self.data}, "
-            f"idx={self.idx}, "
-            f"sample_idx={self.sample_idx}"
-            f")"
-        )
-        return s
+from ..util.callbacks import BaseCallback
+from ..arch.base import BaseOnlineModel
 
 
 class OnlineTrainer:
-    """Manager for online training sections.
-
-    This is an iterable that yields `TrainingBatch objects, which can be used to train
-    the network and log values in `self.logger`.
-
-    The constructor creates optimizers and (optionally) schedulers; see `__init__`. At
-    the end of iteration, the logger's `finalize()` method is called to prepare the
-    results for easy access. Note that `finalize()` will have to be called manually if
-    the iteration is stopped for any other reason that reaching the end of the loader.
-    The logging results can be accessed either through the `logger` attribute, or more
-    directly through `self.log`, which is an alias for `self.logger.history`.
-
-    Note that one can iterate over the trainer only once (even if the previous iteration
-    did not finish). If a new iteration is attempted, `IndexError` is raised.
-
-    Attributes
-    :param logger: `Logger` object used for keeping track of reported tensors; it is
-        generally best to use `TrainingBatch.log` and related functions for logging, and
-        reserve `logger` for reading out the logged data
-    :param log: direct access to `logger`'s history
-    :param optimizers: list of optimizers; these are run for every training step; see
-        `TrainingBatch`
-    :param schedulers: list of learning-rate schedulers; these are run for every
-        training step; see `TrainingBatch`
-    :param log_output: if true, the output from `model.forward()` is automatically
-        logged under `"output"`
-    """
-
     def __init__(
         self,
-        model: torch.nn.Module,
-        loader: Iterable,
-        lr: Optional[float] = None,
-        optim_kws: Optional[dict] = None,
-        log_output: bool = True,
+        callbacks: Optional[List[Union[Callable, BaseCallback]]] = None,
+        logger: Optional[Logger] = None,
     ):
-        """Initialize the iterable, setting up optimizers and schedulers.
+        """Initialize the trainer.
 
-        This calls `model.configure_optimizers()`, which is expected to return two
-        lists, `optimizers` and `schedulers`; these are stored in `self.optimizers` and
-        `self.schedulers`. Arguments can be passed to `configure_optimizers()`; see
-        below.
-
-        If the model does not have a `configure_optimizers()` method, then no optimizers
-        or schedulers are set up.
-
-        :param model: the model to be trained
-        :param loader: the data to train on
-        :param lr: learning rate to pass to `configure_optimizers()`, if not `None`
-        :param optim_kws: keyword arguments to pass to `configure_optimizers()`
-        :param log_output: if true, the output from `model.forward()` is automatically
-            logged under `"output"`
+        :param callbacks: list of callback functions; see `BaseCallback`
+        :param logger: logger object; if `None`, a new `Logger` object will be created;
+            this logger will be used by the model unless overridden by `model.logger`
         """
-        self.model = model
-        self.loader = loader
+        self.callbacks = callbacks if callbacks is not None else []
+        self.logger = logger if logger is not None else Logger()
 
-        self.logger = Logger()
-        self.log = self.logger.history
+    def fit(
+        self, model: BaseOnlineModel, loader: Iterable, finalize_logger: bool = True
+    ):
+        """Train a model on a dataset.
 
-        self.terminating = False
-        self.log_output = log_output
+        :param model: model to train
+        :param loader: iterable used to generate training batches
+        :param finalize_logger: whether to call `finalize()` on the logger at the end of
+            training
+        """
+        callbacks = self._callbacks_by_scope("training")
+        assert len(callbacks["pre_progress"]) == 0
 
-        self._it = None
-        self._i = 0
-        self._sample = 0
+        model.trainer = self
+        for batch in loader:
+            for callback in callbacks["pre_checkpoint"]:
+                callback(model)
 
-        self.optimizers = []
-        self.schedulers = []
-        self._configure_optimizers(lr, optim_kws)
+            stopping = False
+            for callback in callbacks["pre_monitor"]:
+                if not callback(model, self):
+                    stopping = True
+                    break
+            if stopping:
+                break
 
-    def __iter__(self) -> "OnlineTrainer":
-        if self._it is not None:
-            raise IndexError("attempt to iterate over OnlineTrainer a second time")
+            model.training_step(batch)
 
-        self.terminating = False
+            for callback in callbacks["post_progress"]:
+                # XXX implement progress reporting
+                callback({})
+            for callback in callbacks["post_checkpoint"]:
+                callback(model)
 
-        self._i = 0
-        self._sample = 0
-        self._it = iter(self.loader)
-        return self
+            stopping = False
+            for callback in callbacks["post_monitor"]:
+                if not callback(model, self):
+                    stopping = True
+                    break
+            if stopping:
+                break
 
-    def __next__(self) -> TrainingBatch:
-        try:
-            if self.terminating:
-                raise StopIteration
-
-            data = next(self._it)
-
-            batch = TrainingBatch(
-                data=data, idx=self._i, sample_idx=self._sample, trainer=self
-            )
-            self._i += 1
-            self._sample += len(batch)
-
-            return batch
-
-        except StopIteration:
-            # ensure logger coalesces history at the end of the iteration
+        if finalize_logger:
             self.logger.finalize()
-            raise StopIteration
 
-    def _configure_optimizers(self, lr: Optional[float], optim_kws: Optional[dict]):
-        if hasattr(self.model, "configure_optimizers"):
-            if optim_kws is None:
-                optim_kws = {}
-            if lr is not None:
-                optim_kws["lr"] = lr
+    def predict(self, model: BaseOnlineModel, loader: Iterable):
+        callbacks = self._callbacks_by_scope("test")
+        assert len(callbacks["pre_progress"]) == 0
 
-            self.optimizers, self.schedulers = self.model.configure_optimizers(
-                **optim_kws
-            )
+        model.trainer = self
+        for batch in loader:
+            for callback in callbacks["pre_checkpoint"]:
+                callback(model)
 
-    def __len__(self) -> int:
-        return len(self.loader)
+            stopping = False
+            for callback in callbacks["pre_monitor"]:
+                if not callback(model, self):
+                    stopping = True
+                    break
+            if stopping:
+                break
+
+            model.test_step(batch)
+
+            for callback in callbacks["post_progress"]:
+                # XXX implement progress reporting
+                callback({})
+            for callback in callbacks["post_checkpoint"]:
+                callback(model)
+
+            stopping = False
+            for callback in callbacks["post_monitor"]:
+                if not callback(model, self):
+                    stopping = True
+                    break
+            if stopping:
+                break
+
+    def _callbacks_by_scope(self, scope: str) -> Dict[str, BaseCallback]:
+        """Get the callbacks with the given scope, split depending on intent and when
+        they should be called.
+
+        Specifically, this returns a dictionary with keys of the form "pre_monitor",
+        "post_checkpoint", etc., identifying the type of callback and the timing of the
+        call. Each key maps to a list of callback functions.
+        """
+        d = defaultdict(list)
+        for callback in self.callbacks:
+            if callback.scope in [scope, "both"]:
+                key = f"{callback.timing}_{callback.intent}"
+                d[key].append(callback)
+
+        return d
 
     def __repr__(self) -> str:
         s = (
             f"OnlineTrainer("
-            f"model={repr(self.model)}, "
-            f"loader={repr(self.loader)}, "
-            f"logger={repr(self.logger)}, "
-            f"terminating={self.terminating}, "
+            f"callbacks={repr(self.callbacks)}, "
+            f"logger={repr(self.logger)}"
             f")"
         )
         return s
@@ -359,9 +129,8 @@ class OnlineTrainer:
     def __str__(self) -> str:
         s = (
             f"OnlineTrainer("
-            f"model={str(self.model)}, "
-            f"loader={str(self.loader)}, "
-            f"logger={str(self.logger)}, "
+            f"callbacks={str(self.callbacks)}, "
+            f"logger={str(self.logger)}"
             f")"
         )
         return s
