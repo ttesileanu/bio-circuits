@@ -7,7 +7,7 @@ import numpy as np
 from types import SimpleNamespace
 
 from biocircuits.util.online_trainer import OnlineTrainer
-from biocircuits.util.logger import Logger
+from biocircuits.log.logger import Logger
 from biocircuits.arch.base import BaseOnlineModel
 from biocircuits.util.callbacks import BaseCallback
 

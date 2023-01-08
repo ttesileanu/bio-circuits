@@ -3,7 +3,7 @@ import torch
 from collections import defaultdict
 from typing import Iterable, Union, Optional, List, Callable, Dict, Optional
 
-from .logger import Logger
+from ..log.logger import Logger
 from ..util.callbacks import BaseCallback
 from ..arch.base import BaseOnlineModel
 

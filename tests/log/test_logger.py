@@ -3,7 +3,7 @@ import pytest
 import torch
 import numpy as np
 
-from biocircuits.util.logger import Logger
+from biocircuits.log.logger import Logger
 
 
 @pytest.fixture
