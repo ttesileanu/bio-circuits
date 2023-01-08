@@ -137,3 +137,11 @@ def test_log_fails_silently_if_logger_is_not_set(model):
 
 def test_init_creates_empty_optimizer_list(model):
     assert len(model.optimizers) == 0
+
+
+def test_log_uses_trainer_logger_if_logger_is_none(model):
+    trainer = Mock()
+    model.trainer = trainer
+    model.log("key", 3.0)
+
+    trainer.logger.log.assert_called_once()
