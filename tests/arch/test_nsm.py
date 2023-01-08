@@ -410,3 +410,14 @@ def test_training_step_updates_weights(nsm, data):
 
     assert torch.max(torch.abs(W0 - nsm.W)) > 1e-3
     assert torch.max(torch.abs(M0 - nsm.M)) > 1e-3
+
+
+def test_test_step_leaves_weights_unchanged(nsm, data):
+    nsm.configure_optimizers()
+
+    W0 = nsm.W.detach().clone()
+    M0 = nsm.M.detach().clone()
+    nsm.test_step(data)
+
+    assert torch.equal(W0, nsm.W)
+    assert torch.equal(M0, nsm.M)
