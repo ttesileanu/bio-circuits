@@ -244,3 +244,79 @@ def test_predict_returns_none_when_training_step_returns_none(default_trainer, l
     model = DefaultModel()
     output = default_trainer.predict(model, loader)
     assert output is None
+
+
+@pytest.mark.parametrize("scope", ["training", "both"])
+def test_fit_calls_callback_initialize_for_scope(scope, loader):
+    callback = Mock(intent="checkpoint", timing="post", scope=scope)
+    model = DefaultModel()
+
+    trainer = OnlineTrainer(callbacks=[callback])
+    trainer.fit(model, loader)
+    callback.initialize.assert_called()
+
+
+def test_fit_does_not_call_callback_initialize_for_scope_test(loader):
+    callback = Mock(intent="checkpoint", timing="post", scope="test")
+    model = DefaultModel()
+
+    trainer = OnlineTrainer(callbacks=[callback])
+    trainer.fit(model, loader)
+    callback.initialize.assert_not_called()
+
+
+@pytest.mark.parametrize("scope", ["training", "both"])
+def test_fit_calls_callback_finalize_for_scope(scope, loader):
+    callback = Mock(intent="checkpoint", timing="post", scope=scope)
+    model = DefaultModel()
+
+    trainer = OnlineTrainer(callbacks=[callback])
+    trainer.fit(model, loader)
+    callback.finalize.assert_called()
+
+
+def test_fit_does_not_call_callback_finalize_for_scope_test(loader):
+    callback = Mock(intent="checkpoint", timing="post", scope="test")
+    model = DefaultModel()
+
+    trainer = OnlineTrainer(callbacks=[callback])
+    trainer.fit(model, loader)
+    callback.finalize.assert_not_called()
+
+
+@pytest.mark.parametrize("scope", ["test", "both"])
+def test_predict_calls_callback_initialize_for_scope(scope, loader):
+    callback = Mock(intent="checkpoint", timing="post", scope=scope)
+    model = DefaultModel()
+
+    trainer = OnlineTrainer(callbacks=[callback])
+    trainer.predict(model, loader)
+    callback.initialize.assert_called()
+
+
+def test_predict_does_not_call_initialize_for_training(loader):
+    callback = Mock(intent="checkpoint", timing="post", scope="training")
+    model = DefaultModel()
+
+    trainer = OnlineTrainer(callbacks=[callback])
+    trainer.predict(model, loader)
+    callback.initialize.assert_not_called()
+
+
+@pytest.mark.parametrize("scope", ["test", "both"])
+def test_predict_calls_callback_finalize_for_scope(scope, loader):
+    callback = Mock(intent="checkpoint", timing="post", scope=scope)
+    model = DefaultModel()
+
+    trainer = OnlineTrainer(callbacks=[callback])
+    trainer.predict(model, loader)
+    callback.finalize.assert_called()
+
+
+def test_predict_does_not_call_finalize_for_training(loader):
+    callback = Mock(intent="checkpoint", timing="post", scope="training")
+    model = DefaultModel()
+
+    trainer = OnlineTrainer(callbacks=[callback])
+    trainer.predict(model, loader)
+    callback.finalize.assert_not_called()

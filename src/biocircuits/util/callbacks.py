@@ -19,6 +19,14 @@ class BaseCallback:
         self.timing = timing
         self.scope = scope
 
+    def initialize(self, trainer: Any):
+        """Initialize the callback."""
+        pass
+
+    def finalize(self):
+        """Finalize the callback."""
+        pass
+
     def __call__(self, *args, **kwargs) -> Any:
         """The callback function.
 

@@ -38,6 +38,10 @@ class OnlineTrainer:
         callbacks = self._callbacks_by_scope("training")
         assert len(callbacks["pre_progress"]) == 0
 
+        for callback_list in callbacks.values():
+            for callback in callback_list:
+                callback.initialize(self)
+
         outputs = None
 
         model.trainer = self
@@ -78,6 +82,10 @@ class OnlineTrainer:
         if finalize_logger:
             self.logger.finalize()
 
+        for callback_list in callbacks.values():
+            for callback in callback_list:
+                callback.finalize()
+
         return outputs
 
     def predict(
@@ -92,6 +100,10 @@ class OnlineTrainer:
         """
         callbacks = self._callbacks_by_scope("test")
         assert len(callbacks["pre_progress"]) == 0
+
+        for callback_list in callbacks.values():
+            for callback in callback_list:
+                callback.initialize(self)
 
         outputs = None
 
@@ -129,6 +141,10 @@ class OnlineTrainer:
                     break
             if stopping:
                 break
+
+        for callback_list in callbacks.values():
+            for callback in callback_list:
+                callback.finalize()
 
         return outputs
 
