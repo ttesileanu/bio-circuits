@@ -19,7 +19,7 @@ class BaseCallback:
         self.timing = timing
         self.scope = scope
 
-    def __call__(*args, **kwargs) -> Any:
+    def __call__(self, *args, **kwargs) -> Any:
         """The callback function.
 
         The call signature depends on the attributes set during `__init__`.
