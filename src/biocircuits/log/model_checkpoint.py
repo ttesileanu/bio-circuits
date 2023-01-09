@@ -24,6 +24,7 @@ class ModelCheckpoint(BaseCallback):
         """
         super().__init__("checkpoint", timing, scope)
         self.checkpoints = []
+        self.indices = {"batch_idx": [], "sample_idx": []}
         self.frequency = frequency
 
         if isinstance(criterion, str):
@@ -40,3 +41,5 @@ class ModelCheckpoint(BaseCallback):
         if self.criterion(model):
             state_dict = deepcopy(model.state_dict())
             self.checkpoints.append(state_dict)
+            self.indices["batch_idx"].append(model.batch_idx)
+            self.indices["sample_idx"].append(model.sample_idx)

@@ -79,3 +79,26 @@ def test_callable_criterion():
     model.foo = 3
     checkpoint(model)
     assert len(checkpoint.checkpoints) == 1
+
+
+def test_stores_indices():
+    frequency = 3
+    checkpoint = ModelCheckpoint(criterion="batch", frequency=frequency)
+
+    sample_size = 5
+    max_batches = 10
+    model = Mock()
+    for batch_idx in range(max_batches):
+        model.sample_idx = batch_idx * sample_size
+        model.batch_idx = batch_idx
+        checkpoint(model)
+
+    expected_batches = list(range(0, max_batches, frequency))
+    expected_samples = [_ * sample_size for _ in expected_batches]
+
+    indices = checkpoint.indices
+    assert "batch_idx" in indices
+    assert "sample_idx" in indices
+
+    assert indices["batch_idx"] == expected_batches
+    assert indices["sample_idx"] == expected_samples
