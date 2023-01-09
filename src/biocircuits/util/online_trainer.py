@@ -38,6 +38,8 @@ class OnlineTrainer:
         callbacks = self._callbacks_by_scope("training")
         assert len(callbacks["pre_progress"]) == 0
 
+        self.max_batches = len(loader)
+
         for callback_list in callbacks.values():
             for callback in callback_list:
                 callback.initialize(self)

@@ -320,3 +320,16 @@ def test_predict_does_not_call_finalize_for_training(loader):
     trainer = OnlineTrainer(callbacks=[callback])
     trainer.predict(model, loader)
     callback.finalize.assert_not_called()
+
+
+def test_fit_sets_max_batches(default_trainer, loader):
+    model = DefaultModel()
+    default_trainer.fit(model, loader)
+    assert default_trainer.max_batches == len(loader)
+
+
+def test_predict_does_not_set_max_batches(default_trainer, loader):
+    model = DefaultModel()
+    default_trainer.max_batches = -1
+    default_trainer.predict(model, loader)
+    assert default_trainer.max_batches == -1
