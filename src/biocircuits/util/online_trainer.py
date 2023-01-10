@@ -24,14 +24,12 @@ class OnlineTrainer:
         self.logger = logger if logger is not None else Logger()
 
     def fit(
-        self, model: BaseOnlineModel, loader: Iterable, finalize_logger: bool = True
+        self, model: BaseOnlineModel, loader: Iterable
     ) -> Optional[List[torch.Tensor]]:
         """Train a model on a dataset.
 
         :param model: model to train
         :param loader: iterable used to generate training batches
-        :param finalize_logger: whether to call `finalize()` on the logger at the end of
-            training
         :return: a tensor containing all outputs from `training_step`, or `None` if
             there is no output
         """
@@ -40,6 +38,7 @@ class OnlineTrainer:
 
         self.max_batches = len(loader)
 
+        self.logger.initialize()
         for callback_list in callbacks.values():
             for callback in callback_list:
                 callback.initialize(self)
@@ -48,11 +47,8 @@ class OnlineTrainer:
 
         model.trainer = self
         for batch in loader:
-            for callback in callbacks["pre_checkpoint"]:
-                callback(model)
-
             stopping = False
-            for callback in callbacks["pre_monitor"]:
+            for callback in callbacks["pre_checkpoint"]:
                 if not callback(model, self):
                     stopping = True
                     break
@@ -70,19 +66,16 @@ class OnlineTrainer:
             for callback in callbacks["post_progress"]:
                 # XXX implement progress reporting
                 callback({})
-            for callback in callbacks["post_checkpoint"]:
-                callback(model)
 
             stopping = False
-            for callback in callbacks["post_monitor"]:
+            for callback in callbacks["post_checkpoint"]:
                 if not callback(model, self):
                     stopping = True
                     break
             if stopping:
                 break
 
-        if finalize_logger:
-            self.logger.finalize()
+        self.logger.finalize()
 
         for callback_list in callbacks.values():
             for callback in callback_list:
@@ -154,12 +147,13 @@ class OnlineTrainer:
         """Get the callbacks with the given scope, split depending on intent and when
         they should be called.
 
-        Specifically, this returns a dictionary with keys of the form "pre_monitor",
+        Specifically, this returns a dictionary with keys of the form "pre_checkpoint",
         "post_checkpoint", etc., identifying the type of callback and the timing of the
         call. Each key maps to a list of callback functions.
         """
         d = defaultdict(list)
         for callback in self.callbacks:
+            assert callback.intent in ["progress", "checkpoint"]
             if callback.scope in [scope, "both"]:
                 key = f"{callback.timing}_{callback.intent}"
                 d[key].append(callback)

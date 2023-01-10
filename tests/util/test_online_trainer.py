@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import Mock, MagicMock
+from unittest.mock import Mock, patch
 
 import torch
 import numpy as np
@@ -13,8 +13,12 @@ from biocircuits.util.callbacks import BaseCallback
 
 
 class DefaultModel(BaseOnlineModel):
+    def __init__(self):
+        super().__init__()
+        self.batch_idx = 0
+
     def training_step_impl(self, batch: torch.Tensor):
-        pass
+        self.batch_idx += 1
 
     def test_step_impl(self, batch: torch.Tensor):
         pass
@@ -106,23 +110,11 @@ def test_fit_calls_checkpoint_callback_appropriately(loader):
     assert checkpoint.batch_idx_at_call == 1
 
 
-def test_fit_calls_monitor_callback_appropriately(loader):
-    model = DefaultModel()
-    monitor = Callback(model, "monitor")
-
-    trainer = OnlineTrainer(callbacks=[monitor])
-    trainer.fit(model, loader[:1])
-
-    assert monitor.batch_idx_at_call is not None
-    # by default call is after the step
-    assert monitor.batch_idx_at_call == 1
-
-
-def test_fit_exits_if_monitor_returns_false(loader):
+def test_fit_exits_if_checkpoint_returns_false(loader):
     model = Mock()
-    monitor = Callback(model, "monitor", output=False)
+    checkpoint = Callback(model, "checkpoint", output=False)
 
-    trainer = OnlineTrainer(callbacks=[monitor])
+    trainer = OnlineTrainer(callbacks=[checkpoint])
     trainer.fit(model, loader)
 
     assert len(loader) > 1
@@ -143,14 +135,14 @@ def test_fit_runs_callback_before_step_if_timing_is_pre(loader):
 
 def test_fit_runs_callback_after_step_if_timing_is_post(loader):
     model = DefaultModel()
-    monitor = Callback(model, "monitor", "post")
+    checkpoint = Callback(model, "checkpoint", "post")
 
-    trainer = OnlineTrainer(callbacks=[monitor])
+    trainer = OnlineTrainer(callbacks=[checkpoint])
     trainer.fit(model, loader[:1])
 
-    assert monitor.batch_idx_at_call is not None
+    assert checkpoint.batch_idx_at_call is not None
     # this call should be *after* the step
-    assert monitor.batch_idx_at_call == 1
+    assert checkpoint.batch_idx_at_call == 1
 
 
 def test_predict_calls_test_step_the_right_number_of_times(default_trainer, loader):
@@ -201,16 +193,22 @@ def test_predict_calls_callback_if_scope_is(scope, loader):
     assert callback.batch_idx_at_call is not None
 
 
-def test_fit_calls_logger_finalize_at_end_by_default(default_trainer, loader):
+def test_fit_calls_logger_initialize(default_trainer, loader):
     model = DefaultModel()
-    default_trainer.fit(model, loader)
-    assert default_trainer.logger.finalized
+    logger = default_trainer.logger
+    with patch.object(
+        logger, "initialize", wraps=logger.initialize
+    ) as wrapped_initialize:
+        default_trainer.fit(model, loader)
+        wrapped_initialize.assert_called_once()
 
 
-def test_fit_can_disable_calling_logger_finalize(default_trainer, loader):
+def test_fit_calls_logger_finalize(default_trainer, loader):
     model = DefaultModel()
-    default_trainer.fit(model, loader, finalize_logger=False)
-    assert not default_trainer.logger.finalized
+    logger = default_trainer.logger
+    with patch.object(logger, "finalize", wraps=logger.finalize) as wrapped_finalize:
+        default_trainer.fit(model, loader)
+        wrapped_finalize.assert_called_once()
 
 
 @pytest.mark.parametrize("kind", ["repr", "str"])
