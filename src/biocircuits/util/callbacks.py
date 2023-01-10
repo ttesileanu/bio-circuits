@@ -9,10 +9,10 @@ class BaseCallback:
 
         :param intent: callback's intent; can be
             "progress"      -- provide progress reports, such as a progress bar
-            "checkpoint"    -- track changes in model parameters
-            "monitor"       -- assess the need for early termination
+            "checkpoint"    -- track changes in model parameters and assess need for
+                               early termination
         :param timing: when callback should run with respect to the call to `*_step`;
-            can be "pre" or "post"
+            can be "pre" or "post" for "checkpoint", must be "post" for "progress"
         :param scope: which phase to run in; can be "training", "test", or "both"
         """
         self.intent = intent
@@ -40,16 +40,11 @@ class BaseCallback:
 
         Progress callbacks should always have `timing` set to "post".
 
-        Callbacks with intent "checkpoint" receive the model as argument and are
-        expected to return nothing (any return value is ignored):
+        Callbacks with intent "checkpoint" receive both the model and trainer as
+        arguments, and are expected to return a `bool`. A true return value indicates
+        that everything is OK and the run should continue; returning false instead ends
+        the run.
 
-            checkpoint_callback(model)
-
-        Callbacks with intent "monitor" receive both the model and trainer as argument,
-        and are expected to return a `bool`. A true return value indicates that
-        everything is OK and the run should continue; returning false instead ends the
-        run.
-
-            monitor_callback(model, trainer) -> bool
+            checkpoint_callback(model, trainer) -> bool
         """
         raise NotImplementedError("need to override __call__ in descendants")

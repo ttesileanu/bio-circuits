@@ -5,7 +5,7 @@ from biocircuits.util.callbacks import BaseCallback
 
 def test_base_callback_init_sets_class_attribs():
     intent = "progress"
-    timing = "pre"
+    timing = "post"
     scope = "both"
 
     callback = BaseCallback(intent, timing, scope)
