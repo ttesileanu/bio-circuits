@@ -2,6 +2,9 @@ import pytest
 
 import torch
 import numpy as np
+import pandas as pd
+
+from unittest.mock import patch
 
 from biocircuits.log.logger import Logger
 
@@ -11,307 +14,209 @@ def logger() -> Logger:
     return Logger()
 
 
-def test_history_is_empty_if_nothing_is_added(logger):
-    logger.finalize()
-    assert len(logger.history) == 0
+def test_initial_index_is_zero(logger):
+    assert logger.index == 0
 
 
-def test_log_adds_history_entry(logger):
+def test_initial_storage_and_stage_are_empty(logger):
+    assert len(logger.storage) == 0
+    assert len(logger.stage) == 0
+
+
+def test_df_on_just_created_logger_creates_empty_dataframe(logger):
+    assert len(logger.df) == 0
+
+
+def test_log_appends_entry_to_stage(logger):
+    logger.log("foo", 3.0)
+    assert "foo" in logger.stage
+    assert len(logger.stage["foo"]) == 1
+    assert logger.stage["foo"][0] == 3.0
+
+    logger.log("foo", 5.0)
+    assert len(logger.stage["foo"]) == 2
+    assert logger.stage["foo"][-1] == 5.0
+
+
+def test_log_dict(logger):
+    logger.log({"foo": 3, "bar": 5})
+    assert "foo" in logger.stage
+    assert "bar" in logger.stage
+
+
+def test_log_returns_self(logger):
+    assert logger.log("foo", 42) is logger
+
+
+def test_log_converts_0d_tensor_to_float(logger):
     logger.log("foo", torch.tensor(3.0))
-    assert "foo" in logger.history
+    assert not torch.is_tensor(logger.stage["foo"][-1])
+    assert pytest.approx(logger.stage["foo"][-1]) == 3.0
 
 
-def test_tensors_coalesced_after_finalize(logger):
-    a = 3.0
-    b = 2.0
-    logger.log("foo", torch.tensor(a))
-    logger.log("foo", torch.tensor(b))
-    logger.finalize()
-
-    assert "foo" in logger.history
-    np.testing.assert_allclose(logger.history["foo"], [a, b])
+def test_log_converts_scalar_1d_tensor_to_float(logger):
+    logger.log("foo", torch.tensor([3.0]))
+    assert not torch.is_tensor(logger.stage["foo"][-1])
+    assert pytest.approx(logger.stage["foo"][-1]) == 3.0
 
 
-def test_chaining_log_calls(logger):
-    logger.log("foo", torch.tensor(2.0)).log("foo", torch.tensor(3.0))
-    logger.finalize()
-
-    assert len(logger.history["foo"]) == 2
-
-
-def test_finalized_history_contains_arrays(logger):
-    a = 3.0
-    b = 2.0
-    logger.log("foo", torch.tensor(a))
-    logger.log("foo", torch.tensor(b))
-    logger.finalize()
-
-    assert isinstance(logger.history["foo"], np.ndarray)
+def test_log_converts_0d_array_to_float(logger):
+    logger.log("foo", np.array(3.0))
+    assert not isinstance(logger.stage["foo"][-1], np.ndarray)
+    assert pytest.approx(logger.stage["foo"][-1]) == 3.0
 
 
-def test_access_history_directly_using_square_brackets(logger):
-    logger.log("foo", torch.tensor(3.0))
-    logger.finalize()
-    np.testing.assert_allclose(logger["foo"], 3.0)
+def test_log_converts_scalar_1d_array_to_float(logger):
+    logger.log("foo", np.array([3.0]))
+    assert not isinstance(logger.stage["foo"][-1], np.ndarray)
+    assert pytest.approx(logger.stage["foo"][-1]) == 3.0
 
 
-def test_storing_arrays(logger):
-    a = 3.0
-    b = 2.0
-    logger.log("foo", np.array(a))
-    logger.log("foo", np.array(b))
-    logger.finalize()
+def test_log_raises_if_input_not_convertible_to_scalar(logger):
+    with pytest.raises(ValueError):
+        logger.log("foo", [1.0, 2.0])
 
-    np.testing.assert_allclose(logger["foo"], [a, b])
+    with pytest.raises(ValueError):
+        logger.log("foo", np.array([1.0, 2.0]))
 
-
-def test_log_scalar_nontensors_or_arrays(logger):
-    x = 3.0
-    logger.log("bar", x)
-    logger.finalize()
-
-    np.testing.assert_allclose(logger["bar"], [x])
+    with pytest.raises(ValueError):
+        logger.log("foo", torch.tensor([1.0, 2.0]))
 
 
-def test_access_raises_if_called_for_inexistent_field(logger):
-    logger.finalize()
-    with pytest.raises(KeyError):
-        logger["foo"]
+def test_df_access_caches_result(logger):
+    logger.log("foo", 5)
+    logger.commit()
+
+    with patch.object(logger, "save", wraps=logger.save) as wrapped_save:
+        _ = logger.df
+        wrapped_save.assert_called_once()
+
+        # shouldn't be called again
+        _ = logger.df
+        wrapped_save.assert_called_once()
 
 
-def test_log_ints_leads_to_int64_array(logger):
-    i = 3
-    logger.log("bar", i)
-    logger.finalize()
+def test_commit_adds_stage_to_storage(logger):
+    logger.log("foo", 3)
+    logger.commit()
 
-    assert logger["bar"].dtype == "int64"
-
-
-def test_log_list_makes_perlayer_entries(logger):
-    x = [torch.FloatTensor([1.0]), torch.FloatTensor([2.0, 3.0])]
-    logger.log("x", x)
-    logger.finalize()
-
-    for i in range(len(x)):
-        assert f"x:{i}" in logger.history
-        np.testing.assert_allclose(logger[f"x:{i}"][-1], x[i])
+    assert len(logger.storage) == 1
+    assert "foo" in logger.storage[0]
+    assert logger.storage[0]["foo"] == 3
 
 
-def test_log_adds_row_index_to_tensors(logger):
-    x = torch.FloatTensor([1.0, 3.0])
-    logger.log("x", x)
-    logger.finalize()
+def test_commit_appends_index_to_stage_if_stage_not_empty(logger):
+    index = 5
+    logger.step(index)
+    logger.log("foo", 3)
+    logger.commit()
 
-    assert logger["x"].shape == (1, len(x))
+    assert "index" in logger.storage[0]
+    assert logger.storage[0]["index"] == index
 
 
-def test_log_stacks_tensors_properly(logger):
-    x = torch.FloatTensor([[1.0, 3.0], [4.0, 5.0]])
-    for row in x:
-        logger.log("x", row)
-    logger.finalize()
+def test_empty_commit_does_not_change_storage(logger):
+    logger.commit()
+    assert len(logger.storage) == 0
 
-    np.testing.assert_allclose(logger["x"], x)
+
+def test_commit_averages_over_repeated_entries(logger):
+    foo_list = [3, 4, 5]
+    for foo in foo_list:
+        logger.log("foo", foo)
+    logger.commit()
+
+    assert len(logger.storage) == 1
+    assert pytest.approx(logger.storage[0]["foo"]) == sum(foo_list) / len(foo_list)
+
+
+def test_commit_invalidates_df(logger):
+    logger.log("foo", 5)
+    logger.commit()
+
+    # this creates df cache
+    logger.save()
+
+    # this should invalidate it
+    logger.log("bar", 3.0)
+    logger.commit()
+
+    with patch.object(logger, "save", wraps=logger.save) as wrapped_save:
+        _ = logger.df
+        wrapped_save.assert_called_once()
+
+
+def test_commit_empties_stage(logger):
+    logger.log("foo", 3)
+    logger.commit()
+
+    assert len(logger.stage) == 0
+
+
+def test_empty_commit_does_not_invalidate(logger):
+    logger.log("foo", 5)
+    logger.commit()
+    logger.save()
+
+    # should not invalidate
+    logger.commit()
+    with patch.object(logger, "save", wraps=logger.save) as wrapped_save:
+        _ = logger.df
+        wrapped_save.assert_not_called()
+
+
+def test_step_commits_then_increments_index(logger):
+    logger.log("bar", 5.3)
+    with patch.object(logger, "commit", wraps=logger.commit) as wrapped_commit:
+        logger.step()
+        wrapped_commit.assert_called_once()
+
+    assert logger.index == 1
+
+
+def test_step_takes_new_index_value_as_arg(logger):
+    new_index = 5
+    logger.step(new_index)
+    assert logger.index == new_index
+
+
+def test_initialize_empties_stage(logger):
+    logger.log("foo", 3)
+    logger.initialize()
+    assert len(logger.stage) == 0
+
+
+def test_finalize_calls_step(logger):
+    logger.log("foo", 5)
+    with patch.object(logger, "step", wraps=logger.step) as wrapped_step:
+        logger.finalize()
+        wrapped_step.assert_called_once()
+
+    assert len(logger.df) == 1
 
 
 def test_str(logger):
-    logger.log("x", 0)
     s = str(logger)
 
     assert s.startswith("Logger(")
     assert s.endswith(")")
-    assert "x" in s
 
 
 def test_repr(logger):
-    logger.log("x", 0)
-    logger.log("bar", 0)
     s = repr(logger)
 
     assert s.startswith("Logger(")
     assert s.endswith(")")
-    assert "x" in s
-    assert "bar" in s
 
 
-def test_log_works_with_tensor_that_requires_grad(logger):
-    x = torch.FloatTensor([1.0, 2.0]).requires_grad_()
-    logger.log("x", x)
-    logger.finalize()
+def test_stored_index_set_as_df_index(logger):
+    logger.step(3)
+    logger.log("foo", 5)
 
-    assert isinstance(logger["x"], np.ndarray)
-
-
-def test_log_clones_tensor(logger):
-    y = torch.FloatTensor([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]])
-    logger.log("y", y)
-
-    # change tensor after logging, see if change persists
-    y_orig = y.detach().clone()
-    y[0, 1] = -2.0
-    logger.finalize()
-
-    np.testing.assert_allclose(logger["y"][-1], y_orig)
-
-
-def test_log_higher_dim_tensor(logger):
-    x = torch.FloatTensor([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]])
-    y = torch.FloatTensor([[-0.5, 0.2, 0.3], [0.5, 0.3, 0.4]])
-    logger.log("foo", x)
-    logger.log("foo", y)
-    logger.finalize()
-
-    assert len(logger["foo"]) == 2
-    np.testing.assert_allclose(logger["foo"][0], x)
-    np.testing.assert_allclose(logger["foo"][1], y)
-
-
-def test_log_batch(logger):
-    logger.log_batch("foo", torch.FloatTensor([1, 2, 3]))
-    logger.log_batch("bar", torch.FloatTensor([[1, 2], [3, 4], [5, 6]]))
-    logger.finalize()
-
-    for var in ["foo", "bar"]:
-        assert len(logger[var]) == 3
-
-
-def test_log_multiple_fields_at_once(logger):
-    x = torch.FloatTensor([1, 2, 3])
-    y = torch.FloatTensor([[2, 3, 4], [-1, 0.5, 2]])
-    logger.log({"x": x, "y": y})
-    logger.finalize()
-
-    assert "x" in logger.history
-    assert "y" in logger.history
-
-    assert len(logger["x"]) == 1
-    assert len(logger["y"]) == 1
-
-    np.testing.assert_allclose(logger["x"][0], x)
-    np.testing.assert_allclose(logger["y"][0], y)
-
-
-def test_log_batch_multiple_fields(logger):
-    x = torch.FloatTensor([0.5, 1, 1.5])
-    y = torch.FloatTensor([[1, 2], [3, 4], [5, 6]])
-    logger.log_batch({"x": x, "y": y})
-    logger.finalize()
-
-    assert logger["x"].shape == x.shape
-    assert logger["y"].shape == y.shape
-
-    np.testing.assert_allclose(logger["x"], x)
-    np.testing.assert_allclose(logger["y"], y)
-
-
-def test_log_batch_multilayer(logger):
-    w0 = torch.FloatTensor([[1, 2.5], [3, 2.2]])
-    w1 = torch.FloatTensor([[-0.1, 1.5, 0.5], [0.2, 2.3, -1.2]])
-    logger.log_batch("w", [w0, w1])
-    logger.finalize()
-
-    assert "w:0" in logger.history
-    assert "w:1" in logger.history
-    assert logger["w:0"].shape == w0.shape
-    assert logger["w:1"].shape == w1.shape
-
-
-def test_accumulate_followed_by_log_accumulated_averages(logger):
-    x = torch.FloatTensor([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]])
-    for crt_x in x:
-        logger.accumulate("x", crt_x)
-    logger.log_accumulated()
-    logger.finalize()
-
-    assert len(logger["x"]) == 1
-    np.testing.assert_allclose(logger["x"][-1], x.mean(dim=0))
-
-
-def test_log_accumulated_resets_accumulator(logger):
-    xs = [1.5, 2.3]
-    logger.accumulate("x", xs[0])
-    logger.log_accumulated()
-
-    logger.accumulate("x", xs[1])
-    logger.log_accumulated()
+    logger.step(7)
+    logger.log("bar", 3)
 
     logger.finalize()
 
-    assert pytest.approx(logger["x"][-1]) == xs[1]
-
-
-def test_log_iterable_of_non_tensors(logger):
-    logger.log("x", [0, 0])
-    logger.finalize()
-
-    assert len(logger["x:0"]) == 1
-    assert len(logger["x:1"]) == 1
-
-
-def test_log_dict_with_non_tensors(logger):
-    logger.log({"x": torch.tensor(1.0), "y": 2.0})
-    logger.finalize()
-
-    assert len(logger["x"]) == 1
-    assert len(logger["y"]) == 1
-
-
-def test_calculate_accumulated(logger):
-    values = [5.0, 2.5, -0.3]
-    for value in values:
-        logger.accumulate("x", value)
-    mean = logger.calculate_accumulated("x")
-
-    assert pytest.approx(mean) == np.mean(values)
-
-
-def test_calculate_accumulated_has_the_right_dimensions(logger):
-    values = [np.array([5.0, -0.3]), np.array([2.5, 0.7])]
-    for value in values:
-        logger.accumulate("x", value)
-    mean = logger.calculate_accumulated("x")
-
-    assert mean.shape == values[0].shape
-
-
-def test_calculate_accumulated_does_not_clear_accumulator(logger):
-    values = [0.5, -0.3]
-    logger.accumulate("x", values[0])
-    assert pytest.approx(logger.calculate_accumulated("x").item()) == values[0]
-
-    logger.accumulate("x", values[1])
-    accum_val = logger.calculate_accumulated("x")
-    assert pytest.approx(accum_val) != values[1]
-    assert pytest.approx(accum_val) == np.mean(values)
-
-
-def test_calculate_accumulated_returns_nan_if_empty_field(logger):
-    a = logger.calculate_accumulated("x")
-    assert np.isnan(a)
-
-
-def test_logging_scalars_leads_to_vector_history_float(logger):
-    logger.log("x", 0.0)
-    logger.log("x", 0.5)
-    logger.finalize()
-
-    assert logger["x"].ndim == 1
-
-
-def test_logging_scalars_leads_to_vector_history_int(logger):
-    logger.log("x", 0)
-    logger.log("x", 5)
-    logger.finalize()
-
-    assert logger["x"].ndim == 1
-
-
-def test_accumulate_dict(logger):
-    x = torch.FloatTensor([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]])
-    for crt_x in x:
-        logger.accumulate({"x": crt_x, "y": -crt_x})
-    logger.log_accumulated()
-    logger.finalize()
-
-    assert "x" in logger.history
-    assert "y" in logger.history
+    df = logger.df
+    assert df.index.equals(pd.Index([3, 7]))
