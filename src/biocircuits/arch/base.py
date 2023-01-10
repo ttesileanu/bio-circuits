@@ -13,10 +13,6 @@ class BaseOnlineModel(nn.Module):
             Trainer object used with the model.
         logger : Optional[util.Logger]
             Logger object. If it is `None`, `trainer.logger` is used.
-        sample_idx : int
-            Number of training samples processed.
-        batch_idx : int
-            Number of training batches processed.
         optimizers : List[torch.optim.Optimizer]
             List of optimizers used by the model.
     """
@@ -30,12 +26,8 @@ class BaseOnlineModel(nn.Module):
 
         self.trainer = None
         self.logger = None
-        self.sample_idx = 0
-        self.batch_idx = 0
 
         self.optimizers = []
-
-        self._logged_during_step = False
 
     def log(self, name: str, value: Union[None, float, int] = None):
         """Log a scalar value.
@@ -55,8 +47,6 @@ class BaseOnlineModel(nn.Module):
         if logger is not None:
             logger.log(name, value)
 
-        self._logged_during_step = True
-
     def training_step(self, batch: torch.Tensor) -> Optional[torch.Tensor]:
         """Run a training step.
 
@@ -65,15 +55,11 @@ class BaseOnlineModel(nn.Module):
         (but only if `self.log` has been called in `training_step_impl`). It then
         proceeds to increment these indices appropriately.
         """
-        self._logged_during_step = False
         out = self.training_step_impl(batch)
-
-        if self._logged_during_step:
-            self.log("sample", self.sample_idx)
-            self.log("batch", self.batch_idx)
-
-        self.batch_idx += 1
-        self.sample_idx += len(batch)
+        if self.logger is not None:
+            self.logger.step()
+        elif self.trainer is not None:
+            self.trainer.logger.step()
 
         return out
 
