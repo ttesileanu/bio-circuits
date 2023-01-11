@@ -358,3 +358,25 @@ def test_fit_keeps_track_of_sample_index(loader):
 
     batch_size = len(loader[0])
     assert indices == list(range(0, batch_size * len(loader), batch_size))
+
+
+def test_fit_sends_model_for_progress_to_progress_callback(loader):
+    model = DefaultModel()
+    model.for_progress = {"foo": 3, "bar": 5}
+    progress = Mock(intent="progress", timing="post", scope="training")
+
+    trainer = OnlineTrainer(callbacks=[progress])
+    trainer.fit(model, loader[:1])
+
+    progress.assert_called_with(model.for_progress)
+
+
+def test_predict_sends_model_for_progress_to_progress_callback(loader):
+    model = DefaultModel()
+    model.for_progress = {"foo": 3, "bar": 5}
+    progress = Mock(intent="progress", timing="post", scope="test")
+
+    trainer = OnlineTrainer(callbacks=[progress])
+    trainer.predict(model, loader[:1])
+
+    progress.assert_called_with(model.for_progress)

@@ -68,9 +68,9 @@ class OnlineTrainer:
             elif outputs is not None:
                 outputs.append(crt_output)
 
+            progress_dict = model.for_progress
             for callback in callbacks["post_progress"]:
-                # XXX implement progress reporting
-                callback({})
+                callback(progress_dict)
 
             stopping = False
             for callback in callbacks["post_checkpoint"]:
@@ -131,9 +131,9 @@ class OnlineTrainer:
             elif outputs is not None:
                 outputs.append(crt_output)
 
+            progress_dict = model.for_progress
             for callback in callbacks["post_progress"]:
-                # XXX implement progress reporting
-                callback({})
+                callback(progress_dict)
             for callback in callbacks["post_checkpoint"]:
                 callback(model)
 
