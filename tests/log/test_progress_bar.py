@@ -69,7 +69,10 @@ def test_call_calls_set_postfix():
     d = {"foo": 3, "bar": 5}
     progress(d)
 
-    backend_instance.set_postfix.assert_called_once_with(d)
+    backend_instance.set_postfix.assert_called_once()
+
+    call_args = backend_instance.set_postfix.call_args
+    assert call_args.args[0] == d
 
 
 def test_default_backend_is_tqdm(bar):

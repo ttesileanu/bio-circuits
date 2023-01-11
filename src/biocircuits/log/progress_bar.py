@@ -32,4 +32,4 @@ class ProgressBar(BaseCallback):
 
     def __call__(self, postfix: Dict[str, Any]):
         self.pbar.update(1)
-        self.pbar.set_postfix(postfix)
+        self.pbar.set_postfix(postfix, refresh=False)
