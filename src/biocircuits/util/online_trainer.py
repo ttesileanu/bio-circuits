@@ -44,6 +44,9 @@ class OnlineTrainer:
         self.sample_idx = 0
 
         self.logger.initialize()
+
+        model.configure_optimizers()
+
         for callback_list in callbacks.values():
             for callback in callback_list:
                 callback.initialize(self)

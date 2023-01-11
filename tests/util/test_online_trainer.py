@@ -380,3 +380,10 @@ def test_predict_sends_model_for_progress_to_progress_callback(loader):
     trainer.predict(model, loader[:1])
 
     progress.assert_called_with(model.for_progress)
+
+
+def test_fit_calls_model_configure_optimizers(default_trainer, loader):
+    model = Mock()
+    default_trainer.fit(model, loader)
+
+    model.configure_optimizers.assert_called_once()
