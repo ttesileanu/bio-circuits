@@ -104,4 +104,6 @@ def test_stores_indices():
 
     indices = checkpoint.indices
     assert "batch_idx" in indices
+    assert "sample_idx" in indices
     assert indices["batch_idx"] == expected_batches
+    assert indices["sample_idx"] == expected_samples

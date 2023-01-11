@@ -24,6 +24,7 @@ class OnlineTrainer:
         self.logger = logger if logger is not None else Logger()
         self.max_batches = None
         self.batch_idx = None
+        self.sample_idx = None
 
     def fit(
         self, model: BaseOnlineModel, loader: Iterable
@@ -40,6 +41,7 @@ class OnlineTrainer:
 
         self.max_batches = len(loader)
         self.batch_idx = 0
+        self.sample_idx = 0
 
         self.logger.initialize()
         for callback_list in callbacks.values():
@@ -79,6 +81,7 @@ class OnlineTrainer:
                 break
 
             self.batch_idx += 1
+            self.sample_idx += len(batch)
 
         self.logger.finalize()
 

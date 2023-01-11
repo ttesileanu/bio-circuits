@@ -344,3 +344,17 @@ def test_fit_keeps_track_of_batch_index(loader):
     trainer.fit(model, loader)
 
     assert indices == list(range(len(loader)))
+
+
+def test_fit_keeps_track_of_sample_index(loader):
+    indices = []
+    callback = LambdaCallback(
+        lambda _, trainer, storage=indices: storage.append(trainer.sample_idx) or True,
+        timing="pre",
+    )
+    model = DefaultModel()
+    trainer = OnlineTrainer(callbacks=[callback])
+    trainer.fit(model, loader)
+
+    batch_size = len(loader[0])
+    assert indices == list(range(0, batch_size * len(loader), batch_size))
