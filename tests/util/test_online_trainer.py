@@ -9,7 +9,7 @@ from types import SimpleNamespace
 from biocircuits.util.online_trainer import OnlineTrainer
 from biocircuits.log.logger import Logger
 from biocircuits.arch.base import BaseOnlineModel
-from biocircuits.util.callbacks import BaseCallback
+from biocircuits.util.callbacks import BaseCallback, LambdaCallback
 
 
 class DefaultModel(BaseOnlineModel):
@@ -331,3 +331,16 @@ def test_predict_does_not_set_max_batches(default_trainer, loader):
     default_trainer.max_batches = -1
     default_trainer.predict(model, loader)
     assert default_trainer.max_batches == -1
+
+
+def test_fit_keeps_track_of_batch_index(loader):
+    indices = []
+    callback = LambdaCallback(
+        lambda _, trainer, storage=indices: storage.append(trainer.batch_idx) or True,
+        timing="pre",
+    )
+    model = DefaultModel()
+    trainer = OnlineTrainer(callbacks=[callback])
+    trainer.fit(model, loader)
+
+    assert indices == list(range(len(loader)))
