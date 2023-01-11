@@ -5,28 +5,27 @@ from ..util.callbacks import BaseCallback
 
 
 class ProgressBar(BaseCallback):
-    def __init__(
-        self, backend: Callable = tqdm, scope: str = "training", description: str = ""
-    ):
+    def __init__(self, backend: Callable = tqdm, scope: str = "training", **kwargs):
         """Create the progress bar.
 
         :param backend: back-end to use, with `tqdm`-like interface
         :param scope: when to run the progress bar ("training", "test", or "both")
-        :param description: description string to add to the progress bar
+        :param **kwargs: additional keyword arguments that will be passed to `backend`
+            in `initialize()`
         """
         super().__init__("progress", "post", scope)
         self.backend = backend
-        self.description = description
+        self.additional_kwargs = kwargs
 
         self.pbar = None
 
     def initialize(self, trainer: Any):
         """Initialize the progress bar.
-        
+
         Uses `trainer.max_batches` to set the progress-bar total.
         """
         total = trainer.max_batches
-        self.pbar = self.backend(total=total, desc=self.description)
+        self.pbar = self.backend(total=total, **self.additional_kwargs)
 
     def finalize(self):
         self.pbar.close()
