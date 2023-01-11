@@ -2,7 +2,7 @@
 
 import torch
 from torch import nn
-from typing import Union, Dict, Optional
+from typing import Union, Dict, Optional, Any
 
 
 class BaseOnlineModel(nn.Module):
@@ -15,6 +15,8 @@ class BaseOnlineModel(nn.Module):
             Logger object. If it is `None`, `trainer.logger` is used.
         optimizers : List[torch.optim.Optimizer]
             List of optimizers used by the model.
+        for_progress: Dict[str, Any]
+            Dictionary used for progress reports.
     """
 
     def __init__(self, *args, **kwargs):
@@ -26,6 +28,7 @@ class BaseOnlineModel(nn.Module):
 
         self.trainer = None
         self.logger = None
+        self.for_progress = {}
 
         self.optimizers = []
 
@@ -46,6 +49,27 @@ class BaseOnlineModel(nn.Module):
 
         if logger is not None:
             logger.log(name, value)
+
+    def report_progress(self, key: str, value: Any):
+        """Report a key-value pair for use with a progress bar.
+
+        The `value` is simply stored in `self.for_progress`, replacing any previous
+        stored value for the given `key`. Values are never removed automatically, but
+        they can be removed manually using `self.unreport()`.
+        """
+        self.for_progress[key] = value
+
+    def unreport(self, key: str) -> bool:
+        """Remove the `key` from the progress bar.
+
+        If the `key` is not found in `self.for_progress`, the function simply returns
+        `False`.
+        """
+        if key in self.for_progress:
+            self.for_progress.pop(key)
+            return True
+        else:
+            return False
 
     def training_step(self, batch: torch.Tensor) -> Optional[torch.Tensor]:
         """Run a training step.

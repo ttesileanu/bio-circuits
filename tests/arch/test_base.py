@@ -114,3 +114,23 @@ def test_log_uses_trainer_logger_if_logger_is_none(model):
     model.log("key", 3.0)
 
     trainer.logger.log.assert_called_once()
+
+
+def test_report_progress(model):
+    model.report_progress("foo", 3)
+    assert "foo" in model.for_progress
+    assert model.for_progress["foo"] == 3
+
+
+def test_unreport_existing_entry(model):
+    model.report_progress("bar", "foo")
+    assert "bar" in model.for_progress
+
+    was_there = model.unreport("bar")
+    assert "bar" not in model.for_progress
+    assert was_there
+
+
+def test_unreport_non_existing_entry(model):
+    was_there = model.unreport("foo")
+    assert not was_there
