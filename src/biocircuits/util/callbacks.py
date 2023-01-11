@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Callable
 
 
 class BaseCallback:
@@ -48,3 +48,20 @@ class BaseCallback:
             checkpoint_callback(model, trainer) -> bool
         """
         raise NotImplementedError("need to override __call__ in descendants")
+
+
+class LambdaCallback(BaseCallback):
+    """A callback based on a lambda function."""
+
+    def __init__(
+        self,
+        fct: Callable,
+        intent: str = "checkpoint",
+        timing: str = "post",
+        scope: str = "training",
+    ):
+        super().__init__(intent, timing, scope)
+        self.fct = fct
+
+    def __call__(self, *args, **kwargs):
+        return self.fct(*args, **kwargs)
