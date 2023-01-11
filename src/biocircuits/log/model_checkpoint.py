@@ -37,9 +37,11 @@ class ModelCheckpoint(BaseCallback):
 
         self.criterion = criterion
 
-    def __call__(self, model, trainer):
+    def __call__(self, model, trainer) -> bool:
         if self.criterion(model, trainer):
             state_dict = deepcopy(model.state_dict())
             self.checkpoints.append(state_dict)
             self.indices["batch_idx"].append(trainer.batch_idx)
             self.indices["sample_idx"].append(trainer.sample_idx)
+
+        return True

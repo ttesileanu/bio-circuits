@@ -107,3 +107,8 @@ def test_stores_indices():
     assert "sample_idx" in indices
     assert indices["batch_idx"] == expected_batches
     assert indices["sample_idx"] == expected_samples
+
+
+def test_call_returns_true():
+    checkpoint = ModelCheckpoint(criterion="batch", frequency=1)
+    assert checkpoint(Mock(), Mock(batch_idx=0))
