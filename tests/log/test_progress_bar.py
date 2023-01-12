@@ -76,7 +76,7 @@ def test_call_calls_set_postfix():
 
 
 def test_default_backend_is_tqdm(bar):
-    assert bar.backend == tqdm.tqdm
+    assert bar.backend == tqdm.auto.tqdm
 
 
 def test_additional_kwargs():
