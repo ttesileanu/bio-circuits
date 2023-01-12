@@ -20,7 +20,7 @@ torch.manual_seed(0)
 input_dim = 50
 
 n_clusters = 5
-n_samples_each = 10_000
+n_samples_each = 10_100
 samples0 = []
 
 sample_ids = []
@@ -41,6 +41,11 @@ perm = torch.randperm(n_samples)
 samples = torch.vstack((samples0))[perm]
 sample_ids = sample_ids[perm]
 
+n_test = 500
+test_samples = samples[-n_test:]
+samples = samples[:-n_test]
+sample_ids = sample_ids[:-n_test]
+
 # %%
 with dv.FigureManager() as (_, ax):
     ax.scatter(
@@ -59,15 +64,35 @@ with dv.FigureManager() as (_, ax):
 # %%
 
 output_dim = n_clusters
-model = bio.arch.NSM(samples.shape[1], output_dim, tau=5e4, activation="relu")
+model = bio.arch.NSM(samples.shape[1], output_dim, tau=1e4, activation="relu")
 checkpoint_callback = bio.log.ModelCheckpoint(frequency=10)
+test_loss_callback = bio.log.MetricTracker(
+    {"test_loss": lambda model, _: model.loss(test_samples).item() / n_test**2},
+    frequency=1000,
+)
 trainer = bio.OnlineTrainer(
-    callbacks=[bio.log.ProgressBar(mininterval=0.1), checkpoint_callback]
+    callbacks=[
+        bio.log.ProgressBar(mininterval=0.1),
+        checkpoint_callback,
+        test_loss_callback,
+    ]
 )
 output = trainer.fit(model, samples)
 
 # %% [markdown]
 ## Show results
+
+# %% [markdown]
+# Show convergence.
+
+# %%
+logger = trainer.logger
+with dv.FigureManager() as (_, ax):
+    logger.df.plot(ax=ax)
+    ax.set_yscale("log")
+    ax.set_xlabel("sample")
+    ax.set_ylabel("test loss")
+    ax.legend(frameon=False)
 
 # %%
 logger = trainer.logger
