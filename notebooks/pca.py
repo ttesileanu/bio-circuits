@@ -22,6 +22,9 @@ n_samples = 100_000
 gaussian = bio.datasets.RandomGaussian(scales=scales)
 samples = gaussian.sample(n_samples)
 
+n_test = 100
+test_samples = gaussian.sample(n_test)
+
 # %%
 with dv.FigureManager() as (_, ax):
     ax.scatter(samples[:, 0].numpy(), samples[:, 1].numpy(), s=2, alpha=0.05)
@@ -33,16 +36,35 @@ with dv.FigureManager() as (_, ax):
 output_dim = 3
 model = bio.arch.NSM(samples.shape[1], output_dim, tau=100)
 checkpoint_callback = bio.log.ModelCheckpoint(frequency=10)
+test_loss_callback = bio.log.MetricTracker(
+    {"test_loss": lambda model, _: model.loss(test_samples).item() / n_test**2},
+    frequency=1000,
+)
 trainer = bio.OnlineTrainer(
-    callbacks=[bio.log.ProgressBar(mininterval=0.1), checkpoint_callback]
+    callbacks=[
+        bio.log.ProgressBar(mininterval=0.1),
+        checkpoint_callback,
+        test_loss_callback,
+    ]
 )
 output = trainer.fit(model, samples)
 
 # %% [markdown]
 ## Show results
 
+# %% [markdown]
+# Show convergence.
+
 # %%
 logger = trainer.logger
+with dv.FigureManager() as (_, ax):
+    logger.df.plot(ax=ax)
+    ax.set_yscale("log")
+    ax.set_xlabel("sample")
+    ax.set_ylabel("test loss")
+    ax.legend(frameon=False)
+
+# %%
 indices = checkpoint_callback.indices
 checkpoints = checkpoint_callback.checkpoints
 with dv.FigureManager(1, 2) as (fig, (ax1, ax2)):
@@ -105,7 +127,7 @@ with dv.FigureManager() as (_, ax):
     ax.semilogy(idxs, nsm_loss, label="full NSM loss")
     ax.semilogy(idxs, top_pc_loss, label="top PC loss")
     ax.set_xlabel("sample")
-    ax.set_ylabel("NSM loss")
+    ax.set_ylabel("training loss")
 
     expected_residual = sum(_**4 for _ in scales[output_dim:])
     ax.axhline(
