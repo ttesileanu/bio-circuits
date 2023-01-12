@@ -22,6 +22,9 @@ n_samples = 100_000
 gaussian = bio.datasets.RandomGaussian(scales=scales)
 samples = gaussian.sample(n_samples)
 
+n_test = 100
+test_samples = gaussian.sample(n_test)
+
 # %%
 with dv.FigureManager() as (_, ax):
     ax.scatter(samples[:, 0].numpy(), samples[:, 1].numpy(), s=2, alpha=0.05)
@@ -30,27 +33,44 @@ with dv.FigureManager() as (_, ax):
 # ## Run similarity matching on the data
 
 # %%
-dataset = torch.utils.data.TensorDataset(samples)
-# dataloader = torch.utils.data.DataLoader(dataset, batch_size=8)
-dataloader = torch.utils.data.DataLoader(dataset, batch_size=1)
-
 output_dim = 3
 model = bio.arch.NSM(samples.shape[1], output_dim, tau=100)
-trainer = bio.OnlineTrainer(model, dataloader)
-for batch in tqdm.tqdm(trainer):
-    batch.training_step()
-    if batch.every(10):
-        batch.log("w", model.W)
-        batch.log("m", model.M)
+checkpoint_callback = bio.log.ModelCheckpoint(frequency=10)
+test_loss_callback = bio.log.MetricTracker(
+    {"test_loss": lambda model, _: model.loss(test_samples).item() / n_test**2},
+    frequency=1000,
+)
+trainer = bio.OnlineTrainer(
+    callbacks=[
+        bio.log.ProgressBar(mininterval=0.1),
+        checkpoint_callback,
+        test_loss_callback,
+    ]
+)
+output = trainer.fit(model, samples)
 
 # %% [markdown]
 ## Show results
 
+# %% [markdown]
+# Show convergence.
+
 # %%
+logger = trainer.logger
+with dv.FigureManager() as (_, ax):
+    logger.df.plot(ax=ax)
+    ax.set_yscale("log")
+    ax.set_xlabel("sample")
+    ax.set_ylabel("test loss")
+    ax.legend(frameon=False)
+
+# %%
+indices = checkpoint_callback.indices
+checkpoints = checkpoint_callback.checkpoints
 with dv.FigureManager(1, 2) as (fig, (ax1, ax2)):
     ax1.plot(
-        trainer.log["w.sample"],
-        np.reshape(trainer.log["w"], (-1, model.input_dim * model.output_dim)),
+        indices["batch_idx"],
+        [checkpoint["W"].numpy().ravel() for checkpoint in checkpoints],
         lw=0.25,
     )
     ax1.set_xlabel("sample")
@@ -58,8 +78,8 @@ with dv.FigureManager(1, 2) as (fig, (ax1, ax2)):
     ax1.set_title("feedforward weights")
 
     ax2.plot(
-        trainer.log["m.sample"],
-        np.reshape(trainer.log["m"], (-1, model.output_dim * model.output_dim)),
+        indices["batch_idx"],
+        [checkpoint["M"].numpy().ravel() for checkpoint in checkpoints],
         lw=0.25,
     )
     ax2.set_xlabel("sample")
@@ -80,9 +100,10 @@ top_pc_loss = []
 
 idxs = []
 
+a_output = np.vstack(output)
 for i in tqdm.tqdm(range(0, n_samples - window_size, window_step)):
     crt_x = samples[i : i + window_size].numpy()
-    crt_y = trainer.log["output"][i : i + window_size]
+    crt_y = a_output[i : i + window_size]
 
     crt_x_cov = crt_x @ crt_x.T
     crt_y_cov = crt_y @ crt_y.T
@@ -106,7 +127,7 @@ with dv.FigureManager() as (_, ax):
     ax.semilogy(idxs, nsm_loss, label="full NSM loss")
     ax.semilogy(idxs, top_pc_loss, label="top PC loss")
     ax.set_xlabel("sample")
-    ax.set_ylabel("NSM loss")
+    ax.set_ylabel("training loss")
 
     expected_residual = sum(_**4 for _ in scales[output_dim:])
     ax.axhline(

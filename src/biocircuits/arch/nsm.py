@@ -2,10 +2,11 @@ import numpy as np
 import torch
 from torch import nn
 
+from .base import BaseOnlineModel
 from typing import Union, Sequence, Tuple, List
 
 
-class NSM(nn.Module):
+class NSM(BaseOnlineModel):
     """Implementation of the biologically plausible online similarity matching
     algorithm.
 
@@ -177,4 +178,38 @@ class NSM(nn.Module):
         if lr != 1.0:
             raise ValueError("lr needs to equal 1.0 for NSM")
         optimizer = torch.optim.SGD(self.parameters(), lr=lr, **kwargs)
+
+        self.optimizers = [optimizer]
         return [optimizer], []
+
+    def loss(self, batch: torch.Tensor) -> torch.Tensor:
+        """Calculate the similarity matching loss.
+
+        This is defined as
+            sum_{t, t'} (dot(x[t], x[t']) - dot(y[t], y[t'])) ^ 2 ,
+        where `x[t]` are the inputs, `y[t]` are the outputs, and `dot` represents the
+        dot product.
+        """
+        output = self(batch)
+
+        cov_batch = batch @ batch.T
+        cov_output = output @ output.T
+
+        loss = torch.sum((cov_batch - cov_output) ** 2)
+        return loss
+
+    def training_step_impl(self, x: torch.Tensor) -> torch.Tensor:
+        out = self(x)
+        for tensor in self.parameters():
+            tensor.grad = None
+
+        self.backward(x, out)
+
+        for optimizer in self.optimizers:
+            optimizer.step()
+
+        return out
+
+    def test_step_impl(self, x: torch.Tensor) -> torch.Tensor:
+        out = self(x)
+        return out

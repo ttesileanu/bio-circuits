@@ -20,7 +20,7 @@ torch.manual_seed(0)
 input_dim = 50
 
 n_clusters = 5
-n_samples_each = 10_000
+n_samples_each = 10_100
 samples0 = []
 
 sample_ids = []
@@ -41,6 +41,11 @@ perm = torch.randperm(n_samples)
 samples = torch.vstack((samples0))[perm]
 sample_ids = sample_ids[perm]
 
+n_test = 500
+test_samples = samples[-n_test:]
+samples = samples[:-n_test]
+sample_ids = sample_ids[:-n_test]
+
 # %%
 with dv.FigureManager() as (_, ax):
     ax.scatter(
@@ -57,27 +62,46 @@ with dv.FigureManager() as (_, ax):
 # ## Run NSM on the data
 
 # %%
-dataset = torch.utils.data.TensorDataset(samples)
-# dataloader = torch.utils.data.DataLoader(dataset, batch_size=8)
-dataloader = torch.utils.data.DataLoader(dataset, batch_size=1)
 
 output_dim = n_clusters
-model = bio.arch.NSM(samples.shape[1], output_dim, tau=5e4, activation="relu")
-trainer = bio.OnlineTrainer(model, dataloader)
-for batch in tqdm.tqdm(trainer):
-    batch.training_step()
-    if batch.every(10):
-        batch.log("w", model.W)
-        batch.log("m", model.M)
+model = bio.arch.NSM(samples.shape[1], output_dim, tau=1e4, activation="relu")
+checkpoint_callback = bio.log.ModelCheckpoint(frequency=10)
+test_loss_callback = bio.log.MetricTracker(
+    {"test_loss": lambda model, _: model.loss(test_samples).item() / n_test**2},
+    frequency=1000,
+)
+trainer = bio.OnlineTrainer(
+    callbacks=[
+        bio.log.ProgressBar(mininterval=0.1),
+        checkpoint_callback,
+        test_loss_callback,
+    ]
+)
+output = trainer.fit(model, samples)
 
 # %% [markdown]
 ## Show results
 
+# %% [markdown]
+# Show convergence.
+
 # %%
+logger = trainer.logger
+with dv.FigureManager() as (_, ax):
+    logger.df.plot(ax=ax)
+    ax.set_yscale("log")
+    ax.set_xlabel("sample")
+    ax.set_ylabel("test loss")
+    ax.legend(frameon=False)
+
+# %%
+logger = trainer.logger
+indices = checkpoint_callback.indices
+checkpoints = checkpoint_callback.checkpoints
 with dv.FigureManager(1, 2) as (fig, (ax1, ax2)):
     ax1.plot(
-        trainer.log["w.sample"],
-        np.reshape(trainer.log["w"], (-1, model.input_dim * model.output_dim)),
+        indices["batch_idx"],
+        [checkpoint["W"].numpy().ravel() for checkpoint in checkpoints],
         lw=0.25,
     )
     ax1.set_xlabel("sample")
@@ -85,8 +109,8 @@ with dv.FigureManager(1, 2) as (fig, (ax1, ax2)):
     ax1.set_title("feedforward weights")
 
     ax2.plot(
-        trainer.log["m.sample"],
-        np.reshape(trainer.log["m"], (-1, model.output_dim * model.output_dim)),
+        indices["batch_idx"],
+        [checkpoint["M"].numpy().ravel() for checkpoint in checkpoints],
         lw=0.25,
     )
     ax2.set_xlabel("sample")
@@ -94,9 +118,9 @@ with dv.FigureManager(1, 2) as (fig, (ax1, ax2)):
     ax2.set_title("lateral weights")
 
     fig.suptitle("Weight evolution")
-
 # %%
-cluster_assignments = np.argmax(trainer.log["output"], axis=1)
+a_output = np.vstack(output)
+cluster_assignments = np.argmax(a_output, axis=1)
 with dv.FigureManager() as (_, ax):
     ax.scatter(
         samples[:, 0].numpy(),

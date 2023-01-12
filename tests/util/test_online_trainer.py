@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import torch
 import numpy as np
@@ -7,6 +7,52 @@ import numpy as np
 from types import SimpleNamespace
 
 from biocircuits.util.online_trainer import OnlineTrainer
+from biocircuits.log.logger import Logger
+from biocircuits.arch.base import BaseOnlineModel
+from biocircuits.util.callbacks import BaseCallback, LambdaCallback
+
+
+class DefaultModel(BaseOnlineModel):
+    def __init__(self):
+        super().__init__()
+        self.batch_idx = 0
+
+    def training_step_impl(self, batch: torch.Tensor):
+        self.batch_idx += 1
+
+    def test_step_impl(self, batch: torch.Tensor):
+        pass
+
+    def configure_optimizers(self):
+        return [], []
+
+
+class ModelWithOutput(BaseOnlineModel):
+    def training_step_impl(self, batch: torch.Tensor) -> torch.Tensor:
+        return torch.FloatTensor([1.0, 2.0, 3.0])
+
+    def test_step_impl(self, batch: torch.Tensor) -> torch.Tensor:
+        return torch.FloatTensor([1.0, 2.0, -3.0])
+
+    def configure_optimizers(self):
+        return [], []
+
+
+class Callback(BaseCallback):
+    def __init__(self, model, *args, output: bool = True, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.model = model
+        self.output = output
+        self.batch_idx_at_call = None
+
+    def __call__(self, *args, **kwargs):
+        self.batch_idx_at_call = self.model.batch_idx
+        return self.output
+
+
+@pytest.fixture
+def default_trainer() -> OnlineTrainer:
+    return OnlineTrainer()
 
 
 def generate_loader(dim: int, batch_size: int, n_batches: int):
@@ -20,437 +66,330 @@ def loader():
     return generate_loader(dim=3, batch_size=4, n_batches=25)
 
 
-@pytest.fixture
-def trainer(loader):
-    net = SimpleNamespace(forward=Mock(return_value=torch.zeros(4, 4)), backward=Mock())
-    trainer = OnlineTrainer(net, loader)
-    return trainer
+def test_default_callbacks_is_empty(default_trainer):
+    assert len(default_trainer.callbacks) == 0
 
 
-@pytest.fixture
-def net_optim():
-    return SimpleNamespace(
-        forward=Mock(return_value=torch.zeros(4, 4)),
-        backward=Mock(),
-        configure_optimizers=Mock(return_value=([Mock()], [Mock()])),
-    )
+def test_init_creates_new_logger_by_default(default_trainer):
+    assert isinstance(default_trainer.logger, Logger)
 
 
-@pytest.fixture
-def trainer_optim(net_optim, loader):
-    trainer = OnlineTrainer(net_optim, loader)
-    return trainer
+def test_fit_sets_model_trainer_attribute(default_trainer, loader):
+    model = DefaultModel()
+    default_trainer.fit(model, loader)
+    assert model.trainer is default_trainer
 
 
-@pytest.fixture()
-def sample_history(loader) -> SimpleNamespace:
-    net = SimpleNamespace(forward=Mock(return_value=np.zeros((4, 2))), backward=Mock())
-
-    loader = generate_loader(dim=3, batch_size=4, n_batches=25)
-    trainer = OnlineTrainer(net, loader)
-
-    n_samples = 0
-    for batch in trainer:
-        batch.training_step()
-        batch.log_batch("x", batch.data[0])
-        n_samples += len(batch)
-
-    return SimpleNamespace(
-        history=trainer.logger.history, loader=loader, n_samples=n_samples
-    )
+def test_predict_sets_model_trainer_attribute(default_trainer, loader):
+    model = DefaultModel()
+    default_trainer.predict(model, loader)
+    assert model.trainer is default_trainer
 
 
-def test_trainer_iterates_have_data_member(trainer):
-    for batch in trainer:
-        assert hasattr(batch, "data")
+def test_fit_calls_training_step_the_right_number_of_times(default_trainer, loader):
+    model = Mock()
+    default_trainer.fit(model, loader)
+    assert model.training_step.call_count == len(loader)
 
 
-def test_iterating_through_trainer_yields_correct_data(trainer, loader):
-    for batch, (x,) in zip(trainer, loader):
-        assert torch.allclose(batch.data[0], x)
+def test_fit_calls_progress_callback_appropriately(loader):
+    model = DefaultModel()
+    progress = Callback(model, "progress")
+
+    trainer = OnlineTrainer(callbacks=[progress])
+    trainer.fit(model, loader[:1])
+
+    assert progress.batch_idx_at_call is not None
+    # by default call is after the step
+    assert progress.batch_idx_at_call == 1
 
 
-def test_trainer_call_returns_sequence_with_correct_len(trainer, loader):
-    assert len(trainer) == len(loader)
+def test_fit_calls_checkpoint_callback_appropriately(loader):
+    model = DefaultModel()
+    checkpoint = Callback(model, "checkpoint")
+
+    trainer = OnlineTrainer(callbacks=[checkpoint])
+    trainer.fit(model, loader[:1])
+
+    assert checkpoint.batch_idx_at_call is not None
+    # by default call is after the step
+    assert checkpoint.batch_idx_at_call == 1
 
 
-def test_trainer_call_returns_sequence_with_right_no_of_elems(trainer, loader):
-    data = [_ for _ in trainer]
-    assert len(data) == len(loader)
+def test_fit_exits_if_checkpoint_returns_false(loader):
+    model = Mock()
+    checkpoint = Callback(model, "checkpoint", output=False)
+
+    trainer = OnlineTrainer(callbacks=[checkpoint])
+    trainer.fit(model, loader)
+
+    assert len(loader) > 1
+    assert model.training_step.call_count == 1
 
 
-def test_batch_training_step_calls_net_forward(trainer):
-    batch = next(iter(trainer))
-    batch.training_step()
+def test_fit_runs_callback_before_step_if_timing_is_pre(loader):
+    model = DefaultModel()
+    checkpoint = Callback(model, "checkpoint", "pre")
 
-    trainer.model.forward.assert_called_once()
+    trainer = OnlineTrainer(callbacks=[checkpoint])
+    trainer.fit(model, loader[:1])
 
-
-def test_batch_training_step_calls_net_forward_with_data(trainer):
-    batch = next(iter(trainer))
-    batch.training_step()
-
-    trainer.model.forward.assert_called_once_with(*batch.data)
+    assert checkpoint.batch_idx_at_call is not None
+    # this call should be *before* the step
+    assert checkpoint.batch_idx_at_call == 0
 
 
-def test_batch_training_step_returns_output_from_forward(trainer):
-    ret_val = torch.FloatTensor([1.0, -1.0])
-    trainer.model.forward.return_value = ret_val
-    for batch in trainer:
-        out = batch.training_step()
+def test_fit_runs_callback_after_step_if_timing_is_post(loader):
+    model = DefaultModel()
+    checkpoint = Callback(model, "checkpoint", "post")
 
-    assert torch.allclose(out, ret_val)
+    trainer = OnlineTrainer(callbacks=[checkpoint])
+    trainer.fit(model, loader[:1])
 
-
-def test_batch_training_step_calls_net_backward_with_input_and_output_from_forward(
-    trainer,
-):
-    batch = next(iter(trainer))
-    out = batch.training_step()
-
-    trainer.model.backward.assert_called_once_with(*batch.data, out)
+    assert checkpoint.batch_idx_at_call is not None
+    # this call should be *after* the step
+    assert checkpoint.batch_idx_at_call == 1
 
 
-def test_batch_contains_batch_index(trainer):
-    for i, batch in enumerate(trainer):
-        assert i == batch.idx
+def test_predict_calls_test_step_the_right_number_of_times(default_trainer, loader):
+    model = Mock()
+    default_trainer.predict(model, loader)
+    assert model.test_step.call_count == len(loader)
 
 
-def test_batch_every(trainer):
-    s = 3
-    for batch in trainer:
-        assert batch.every(s) == ((batch.idx % s) == 0)
+def test_fit_does_not_call_callback_if_scope_is_test(loader):
+    model = DefaultModel()
+    callback = Callback(model, scope="test")
+
+    trainer = OnlineTrainer(callbacks=[callback])
+    trainer.fit(model, loader)
+
+    assert callback.batch_idx_at_call is None
 
 
-def test_batch_count(trainer, loader):
-    n = len(loader)
-    c = 13
-    idxs = np.linspace(0, n - 1, c).astype(int)
-    for batch in trainer:
-        assert batch.count(c) == (batch.idx in idxs)
+@pytest.mark.parametrize("scope", ["training", "both"])
+def test_fit_calls_callback_if_scope_is(scope, loader):
+    model = DefaultModel()
+    callback = Callback(model, scope=scope)
+
+    trainer = OnlineTrainer(callbacks=[callback])
+    trainer.fit(model, loader)
+
+    assert callback.batch_idx_at_call is not None
 
 
-def test_batch_len(trainer):
-    for batch in trainer:
-        assert len(batch) == len(batch.data[0])
+def test_predict_does_not_call_callback_if_scope_is_training(loader):
+    model = DefaultModel()
+    callback = Callback(model, scope="training")
+
+    trainer = OnlineTrainer(callbacks=[callback])
+    trainer.predict(model, loader)
+
+    assert callback.batch_idx_at_call is None
 
 
-def test_batch_keeps_track_of_sample_index(trainer):
-    crt_sample = 0
-    for batch in trainer:
-        assert batch.sample_idx == crt_sample
-        crt_sample += len(batch)
+@pytest.mark.parametrize("scope", ["test", "both"])
+def test_predict_calls_callback_if_scope_is(scope, loader):
+    model = DefaultModel()
+    callback = Callback(model, scope=scope)
+
+    trainer = OnlineTrainer(callbacks=[callback])
+    trainer.predict(model, loader)
+
+    assert callback.batch_idx_at_call is not None
 
 
-def test_batch_terminate_ends_iteration(trainer):
-    count = 0
-    n = 5
-    for batch in trainer:
-        count += 1
-        if batch.idx == n - 1:
-            batch.terminate()
-
-    assert count == n
-
-
-def test_batch_terminate_only_terminates_on_next_iter(trainer):
-    count = 0
-    for batch in trainer:
-        batch.terminate()
-        count += 1
-
-    assert count == 1
+def test_fit_calls_logger_initialize(default_trainer, loader):
+    model = DefaultModel()
+    logger = default_trainer.logger
+    with patch.object(
+        logger, "initialize", wraps=logger.initialize
+    ) as wrapped_initialize:
+        default_trainer.fit(model, loader)
+        wrapped_initialize.assert_called_once()
 
 
-def test_batch_log_fills_in_sample_index(trainer):
-    expected = []
-    for batch in trainer:
-        batch.log("foo", 2.0)
-        expected.append(batch.sample_idx)
-
-    history = trainer.logger.history
-    assert "foo.sample" in history
-
-    samples = history["foo.sample"]
-    assert len(samples) == len(expected)
-
-    np.testing.assert_equal(samples, expected)
-
-
-def test_end_of_iteration_calls_logger_finalize(trainer):
-    for batch in trainer:
-        batch.log("foo", 1.0)
-
-    assert trainer.logger.finalized
-
-
-def test_trainer_log_batch_reports_correct_samples(sample_history):
-    expected_sample = np.arange(sample_history.n_samples)
-    np.testing.assert_equal(sample_history.history["x.sample"], expected_sample)
-
-
-def test_batch_accumulate(trainer):
-    rng = np.random.default_rng(0)
-    values = rng.normal(size=len(trainer))
-
-    expected = []
-    for i in range(len(values) // 4):
-        expected.append(np.mean(values[i * 4 : (i + 1) * 4]))
-
-    calculated = []
-    for batch in trainer:
-        if batch.every(4):
-            calculated.append(batch.calculate_accumulated("foo"))
-            batch.log_accumulated()
-        batch.accumulate("foo", values[batch.idx])
-
-    history = trainer.logger.history
-    assert "foo" in history
-    assert np.isnan(calculated[0])  # because nothing was accumulated yet
-    np.testing.assert_allclose(calculated[1:], history["foo"])
-    np.testing.assert_allclose(calculated[1:], expected)
+def test_fit_calls_logger_finalize(default_trainer, loader):
+    model = DefaultModel()
+    logger = default_trainer.logger
+    with patch.object(logger, "finalize", wraps=logger.finalize) as wrapped_finalize:
+        default_trainer.fit(model, loader)
+        wrapped_finalize.assert_called_once()
 
 
 @pytest.mark.parametrize("kind", ["repr", "str"])
-def test_trainer_repr(trainer, kind):
-    s = {"repr": repr, "str": str}[kind](trainer)
+def test_trainer_repr(default_trainer, kind):
+    s = {"repr": repr, "str": str}[kind](default_trainer)
     assert s.startswith("OnlineTrainer(")
     assert s.endswith(")")
 
 
-@pytest.mark.parametrize("kind", ["repr", "str"])
-def test_train_batch_repr(trainer, kind):
-    batch = next(iter(trainer))
+def test_fit_returns_list_of_outputs(default_trainer, loader):
+    model = ModelWithOutput()
+    output = default_trainer.fit(model, loader)
+    assert output is not None
+    assert len(output) == len(loader)
 
-    s = {"repr": repr, "str": str}[kind](batch)
-    assert s.startswith("TrainingBatch(")
-    assert s.endswith(")")
 
+def test_fit_returns_none_when_training_step_returns_none(default_trainer, loader):
+    model = DefaultModel()
+    output = default_trainer.fit(model, loader)
+    assert output is None
 
-def test_multiparam_log_stores_sample_for_each_key(trainer):
-    for batch in trainer:
-        batch.log({"foo": 0.0, "bar": 1.0})
 
-    assert "foo.sample" in trainer.logger.history
-    assert "bar.sample" in trainer.logger.history
+def test_predict_returns_list_of_outputs(default_trainer, loader):
+    model = ModelWithOutput()
+    output = default_trainer.predict(model, loader)
+    assert output is not None
+    assert len(output) == len(loader)
 
 
-def test_multiparam_log_batch_stores_sample_for_each_key(trainer):
-    a = np.array([0.0, 1.0])
-    for batch in trainer:
-        batch.log_batch({"foo": a, "bar": a})
+def test_predict_returns_none_when_training_step_returns_none(default_trainer, loader):
+    model = DefaultModel()
+    output = default_trainer.predict(model, loader)
+    assert output is None
 
-    assert "foo.sample" in trainer.logger.history
-    assert "bar.sample" in trainer.logger.history
 
+@pytest.mark.parametrize("scope", ["training", "both"])
+def test_fit_calls_callback_initialize_for_scope(scope, loader):
+    callback = Mock(intent="checkpoint", timing="post", scope=scope)
+    model = DefaultModel()
 
-def test_multiparam_log_accumulated_stores_sample_for_each_key(trainer):
-    for batch in trainer:
-        if batch.every(4):
-            batch.log_accumulated()
-        batch.accumulate({"foo": 0.0, "bar": 1.0})
+    trainer = OnlineTrainer(callbacks=[callback])
+    trainer.fit(model, loader)
+    callback.initialize.assert_called()
 
-    assert "foo.sample" in trainer.logger.history
-    assert "bar.sample" in trainer.logger.history
 
+def test_fit_does_not_call_callback_initialize_for_scope_test(loader):
+    callback = Mock(intent="checkpoint", timing="post", scope="test")
+    model = DefaultModel()
 
-def test_log_with_index_prefix(trainer):
-    for batch in trainer:
-        batch.log("foo", 0, index_prefix="bar")
+    trainer = OnlineTrainer(callbacks=[callback])
+    trainer.fit(model, loader)
+    callback.initialize.assert_not_called()
 
-    assert "foo.sample" not in trainer.logger.history
-    assert "bar.sample" in trainer.logger.history
 
+@pytest.mark.parametrize("scope", ["training", "both"])
+def test_fit_calls_callback_finalize_for_scope(scope, loader):
+    callback = Mock(intent="checkpoint", timing="post", scope=scope)
+    model = DefaultModel()
 
-def test_multiparam_log_with_index_prefix(trainer):
-    for batch in trainer:
-        batch.log({"foo": 0.0, "bar": 1.0}, index_prefix="boo")
+    trainer = OnlineTrainer(callbacks=[callback])
+    trainer.fit(model, loader)
+    callback.finalize.assert_called()
 
-    assert "foo.sample" not in trainer.logger.history
-    assert "bar.sample" not in trainer.logger.history
-    assert "boo.sample" in trainer.logger.history
 
+def test_fit_does_not_call_callback_finalize_for_scope_test(loader):
+    callback = Mock(intent="checkpoint", timing="post", scope="test")
+    model = DefaultModel()
 
-def test_log_batch_with_index_prefix(trainer):
-    a = np.array([0.0, 1.0])
-    for batch in trainer:
-        batch.log_batch("foo", a, index_prefix="bar")
+    trainer = OnlineTrainer(callbacks=[callback])
+    trainer.fit(model, loader)
+    callback.finalize.assert_not_called()
 
-    assert "foo.sample" not in trainer.logger.history
-    assert "bar.sample" in trainer.logger.history
 
+@pytest.mark.parametrize("scope", ["test", "both"])
+def test_predict_calls_callback_initialize_for_scope(scope, loader):
+    callback = Mock(intent="checkpoint", timing="post", scope=scope)
+    model = DefaultModel()
 
-def test_multiparam_log_batch_with_index_prefix(trainer):
-    a = np.array([0.0, 1.0])
-    for batch in trainer:
-        batch.log_batch({"foo": a, "bar": a}, index_prefix="boo")
+    trainer = OnlineTrainer(callbacks=[callback])
+    trainer.predict(model, loader)
+    callback.initialize.assert_called()
 
-    assert "foo.sample" not in trainer.logger.history
-    assert "bar.sample" not in trainer.logger.history
-    assert "boo.sample" in trainer.logger.history
 
+def test_predict_does_not_call_initialize_for_training(loader):
+    callback = Mock(intent="checkpoint", timing="post", scope="training")
+    model = DefaultModel()
 
-def test_log_accumulated_with_index_prefix(trainer):
-    for batch in trainer:
-        if batch.every(4):
-            batch.log_accumulated(index_prefix="boo")
-        batch.accumulate({"foo": 0.0, "bar": 1.0})
+    trainer = OnlineTrainer(callbacks=[callback])
+    trainer.predict(model, loader)
+    callback.initialize.assert_not_called()
 
-    assert "foo.sample" not in trainer.logger.history
-    assert "bar.sample" not in trainer.logger.history
-    assert "boo.sample" in trainer.logger.history
 
+@pytest.mark.parametrize("scope", ["test", "both"])
+def test_predict_calls_callback_finalize_for_scope(scope, loader):
+    callback = Mock(intent="checkpoint", timing="post", scope=scope)
+    model = DefaultModel()
 
-def test_batch_training_step_calls_model_training_step_if_available(trainer):
-    trainer.model.training_step = Mock()
+    trainer = OnlineTrainer(callbacks=[callback])
+    trainer.predict(model, loader)
+    callback.finalize.assert_called()
 
-    batch = next(iter(trainer))
-    batch.training_step()
 
-    trainer.model.forward.assert_not_called()
-    trainer.model.backward.assert_not_called()
-    trainer.model.training_step.assert_called()
+def test_predict_does_not_call_finalize_for_training(loader):
+    callback = Mock(intent="checkpoint", timing="post", scope="training")
+    model = DefaultModel()
 
+    trainer = OnlineTrainer(callbacks=[callback])
+    trainer.predict(model, loader)
+    callback.finalize.assert_not_called()
 
-def test_batch_training_step_calls_model_training_step_with_batch(trainer):
-    trainer.model.training_step = Mock()
 
-    for batch in trainer:
-        batch.training_step()
-        trainer.model.training_step.assert_called_with(batch)
+def test_fit_sets_max_batches(default_trainer, loader):
+    model = DefaultModel()
+    default_trainer.fit(model, loader)
+    assert default_trainer.max_batches == len(loader)
 
 
-def test_cannot_iterate_twice(trainer):
-    for _ in trainer:
-        pass
+def test_predict_does_not_set_max_batches(default_trainer, loader):
+    model = DefaultModel()
+    default_trainer.max_batches = -1
+    default_trainer.predict(model, loader)
+    assert default_trainer.max_batches == -1
 
-    with pytest.raises(IndexError):
-        for _ in trainer:
-            pass
 
-
-def test_trainer_init_calls_model_configure_optimizers(net_optim, loader):
-    trainer = OnlineTrainer(net_optim, loader)
-    trainer.model.configure_optimizers.assert_called_once_with()
-
-
-def test_trainer_init_passes_lr_to_configure_optimizers(net_optim, loader):
-    lr = 0.123
-    trainer = OnlineTrainer(net_optim, loader, lr=lr)
-    trainer.model.configure_optimizers.assert_called_once_with(lr=lr)
-
-
-def test_trainer_init_passes_optim_kws_to_configure_optimizers(net_optim, loader):
-    trainer = OnlineTrainer(net_optim, loader, optim_kws={"foo": "bar"})
-    trainer.model.configure_optimizers.assert_called_once_with(foo="bar")
-
-
-def test_trainer_init_stores_output_from_configure_optimizers(net_optim, loader):
-    optim = Mock()
-    sched = Mock()
-    net_optim.configure_optimizers.return_value = ([optim], [sched])
-    trainer = OnlineTrainer(net_optim, loader)
-
-    assert len(trainer.optimizers) == 1
-    assert trainer.optimizers[0] is optim
-
-    assert len(trainer.schedulers) == 1
-    assert trainer.schedulers[0] is sched
-
-
-def test_optimizers_and_schedulers_are_empty_lists_if_no_configure_optimizers(trainer):
-    assert len(trainer.optimizers) == 0
-    assert len(trainer.schedulers) == 0
-
-
-def test_batch_training_step_calls_optimizer_zero_grad(trainer_optim):
-    batch = next(iter(trainer_optim))
-    batch.training_step()
-
-    for optim in trainer_optim.optimizers:
-        optim.zero_grad.assert_called_once()
-
-
-def test_batch_training_step_calls_optimizer_step(trainer_optim):
-    batch = next(iter(trainer_optim))
-    batch.training_step()
-
-    for optim in trainer_optim.optimizers:
-        optim.step.assert_called_once()
-
-
-def test_batch_training_step_calls_scheduler_step(trainer_optim):
-    batch = next(iter(trainer_optim))
-    batch.training_step()
-
-    for sched in trainer_optim.schedulers:
-        sched.step.assert_called_once()
-
-
-def test_optimizer_and_scheduler_step_called_when_model_has_training_step(
-    trainer_optim,
-):
-    trainer_optim.model.training_step = Mock()
-
-    batch = next(iter(trainer_optim))
-    batch.training_step()
-
-    for optim in trainer_optim.optimizers:
-        optim.step.assert_called_once()
-    for sched in trainer_optim.schedulers:
-        sched.step.assert_called_once()
-
-
-def test_optimizer_zero_grad_not_called_when_model_has_training_step(trainer_optim):
-    trainer_optim.model.training_step = Mock()
-
-    batch = next(iter(trainer_optim))
-    batch.training_step()
-
-    for optim in trainer_optim.optimizers:
-        optim.zero_grad.assert_not_called()
-
-
-def test_outputs_logged_batch_size_one(trainer):
-    a = torch.FloatTensor([0.1, -0.2, 0.3])
-
-    loader = generate_loader(dim=3, batch_size=1, n_batches=50)
-    net = SimpleNamespace(forward=Mock(return_value=a), backward=Mock())
-    trainer = OnlineTrainer(net, loader)
-    for batch in trainer:
-        batch.training_step()
-
-    assert "output" in trainer.logger.history
-    for out in trainer.logger["output"]:
-        np.testing.assert_allclose(out, a.numpy())
-
-
-def test_disabling_output_logging(trainer):
-    trainer.log_output = False
-    for batch in trainer:
-        batch.training_step()
-
-    assert "output" not in trainer.logger.history
-
-
-def test_output_with_nontrivial_batch_size(trainer):
-    a = torch.FloatTensor(
-        [
-            [0.1, -0.2, 0.3, 0.4],
-            [0.2, -0.1, 0.4, 0.2],
-            [0.3, -0.0, 0.5, 0.4],
-            [0.4, 0.1, 0.4, 0.2],
-        ]
+def test_fit_keeps_track_of_batch_index(loader):
+    indices = []
+    callback = LambdaCallback(
+        lambda _, trainer, storage=indices: storage.append(trainer.batch_idx) or True,
+        timing="pre",
     )
-    trainer.model.forward.return_value = a
-    for batch in trainer:
-        batch.training_step()
+    model = DefaultModel()
+    trainer = OnlineTrainer(callbacks=[callback])
+    trainer.fit(model, loader)
 
-    assert "output" in trainer.logger.history
-    assert len(trainer.logger["output"]) == len(trainer) * len(a)
-    for i, out in enumerate(trainer.logger["output"]):
-        np.testing.assert_allclose(out, a[i % len(a)].numpy())
+    assert indices == list(range(len(loader)))
 
 
-def test_log_accesses_logger_history(trainer):
-    assert trainer.log is trainer.logger.history
+def test_fit_keeps_track_of_sample_index(loader):
+    indices = []
+    callback = LambdaCallback(
+        lambda _, trainer, storage=indices: storage.append(trainer.sample_idx) or True,
+        timing="pre",
+    )
+    model = DefaultModel()
+    trainer = OnlineTrainer(callbacks=[callback])
+    trainer.fit(model, loader)
+
+    batch_size = len(loader[0])
+    assert indices == list(range(0, batch_size * len(loader), batch_size))
+
+
+def test_fit_sends_model_for_progress_to_progress_callback(loader):
+    model = DefaultModel()
+    model.for_progress = {"foo": 3, "bar": 5}
+    progress = Mock(intent="progress", timing="post", scope="training")
+
+    trainer = OnlineTrainer(callbacks=[progress])
+    trainer.fit(model, loader[:1])
+
+    progress.assert_called_with(model.for_progress)
+
+
+def test_predict_sends_model_for_progress_to_progress_callback(loader):
+    model = DefaultModel()
+    model.for_progress = {"foo": 3, "bar": 5}
+    progress = Mock(intent="progress", timing="post", scope="test")
+
+    trainer = OnlineTrainer(callbacks=[progress])
+    trainer.predict(model, loader[:1])
+
+    progress.assert_called_with(model.for_progress)
+
+
+def test_fit_calls_model_configure_optimizers(default_trainer, loader):
+    model = Mock()
+    default_trainer.fit(model, loader)
+
+    model.configure_optimizers.assert_called_once()

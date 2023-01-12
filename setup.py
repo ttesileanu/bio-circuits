@@ -9,15 +9,6 @@ setup(
     packages=["biocircuits"],
     package_dir={"": "src"},
     install_requires=[
-        "numpy",
-        "scipy",
         "setuptools",
-        "torch",
-        "torchvision",
-        "matplotlib",
-        "seaborn",
-        "tqdm",
-        "pydove",
-        "ipykernel",
     ],
 )
