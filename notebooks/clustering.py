@@ -57,27 +57,26 @@ with dv.FigureManager() as (_, ax):
 # ## Run NSM on the data
 
 # %%
-dataset = torch.utils.data.TensorDataset(samples)
-# dataloader = torch.utils.data.DataLoader(dataset, batch_size=8)
-dataloader = torch.utils.data.DataLoader(dataset, batch_size=1)
 
 output_dim = n_clusters
 model = bio.arch.NSM(samples.shape[1], output_dim, tau=5e4, activation="relu")
-trainer = bio.OnlineTrainer(model, dataloader)
-for batch in tqdm.tqdm(trainer):
-    batch.training_step()
-    if batch.every(10):
-        batch.log("w", model.W)
-        batch.log("m", model.M)
+checkpoint_callback = bio.log.ModelCheckpoint(frequency=10)
+trainer = bio.OnlineTrainer(
+    callbacks=[bio.log.ProgressBar(mininterval=0.1), checkpoint_callback]
+)
+output = trainer.fit(model, samples)
 
 # %% [markdown]
 ## Show results
 
 # %%
+logger = trainer.logger
+indices = checkpoint_callback.indices
+checkpoints = checkpoint_callback.checkpoints
 with dv.FigureManager(1, 2) as (fig, (ax1, ax2)):
     ax1.plot(
-        trainer.log["w.sample"],
-        np.reshape(trainer.log["w"], (-1, model.input_dim * model.output_dim)),
+        indices["batch_idx"],
+        [checkpoint["W"].numpy().ravel() for checkpoint in checkpoints],
         lw=0.25,
     )
     ax1.set_xlabel("sample")
@@ -85,8 +84,8 @@ with dv.FigureManager(1, 2) as (fig, (ax1, ax2)):
     ax1.set_title("feedforward weights")
 
     ax2.plot(
-        trainer.log["m.sample"],
-        np.reshape(trainer.log["m"], (-1, model.output_dim * model.output_dim)),
+        indices["batch_idx"],
+        [checkpoint["M"].numpy().ravel() for checkpoint in checkpoints],
         lw=0.25,
     )
     ax2.set_xlabel("sample")
@@ -94,9 +93,9 @@ with dv.FigureManager(1, 2) as (fig, (ax1, ax2)):
     ax2.set_title("lateral weights")
 
     fig.suptitle("Weight evolution")
-
 # %%
-cluster_assignments = np.argmax(trainer.log["output"], axis=1)
+a_output = np.vstack(output)
+cluster_assignments = np.argmax(a_output, axis=1)
 with dv.FigureManager() as (_, ax):
     ax.scatter(
         samples[:, 0].numpy(),
