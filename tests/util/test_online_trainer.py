@@ -23,6 +23,9 @@ class DefaultModel(BaseOnlineModel):
     def test_step_impl(self, batch: torch.Tensor):
         pass
 
+    def configure_optimizers(self):
+        return [], []
+
 
 class ModelWithOutput(BaseOnlineModel):
     def training_step_impl(self, batch: torch.Tensor) -> torch.Tensor:
@@ -30,6 +33,9 @@ class ModelWithOutput(BaseOnlineModel):
 
     def test_step_impl(self, batch: torch.Tensor) -> torch.Tensor:
         return torch.FloatTensor([1.0, 2.0, -3.0])
+
+    def configure_optimizers(self):
+        return [], []
 
 
 class Callback(BaseCallback):

@@ -134,3 +134,8 @@ def test_unreport_existing_entry(model):
 def test_unreport_non_existing_entry(model):
     was_there = model.unreport("foo")
     assert not was_there
+
+
+def test_configure_optimizers_raises_not_implemented(model):
+    with pytest.raises(NotImplementedError):
+        model.configure_optimizers()

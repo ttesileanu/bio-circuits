@@ -2,7 +2,7 @@
 
 import torch
 from torch import nn
-from typing import Union, Dict, Optional, Any
+from typing import Union, Dict, Optional, Any, Tuple, List
 
 
 class BaseOnlineModel(nn.Module):
@@ -99,3 +99,7 @@ class BaseOnlineModel(nn.Module):
 
     def test_step_impl(self, batch: torch.Tensor) -> Optional[torch.Tensor]:
         raise NotImplementedError("need to override test_step_impl method")
+
+    def configure_optimizers(self) -> Tuple[List[torch.optim.Optimizer], List]:
+        """Configure optimizers and schedulers."""
+        raise NotImplementedError("need to override configure_optimizers method")
