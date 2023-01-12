@@ -182,6 +182,22 @@ class NSM(BaseOnlineModel):
         self.optimizers = [optimizer]
         return [optimizer], []
 
+    def loss(self, batch: torch.Tensor) -> torch.Tensor:
+        """Calculate the similarity matching loss.
+
+        This is defined as
+            sum_{t, t'} (dot(x[t], x[t']) - dot(y[t], y[t'])) ^ 2 ,
+        where `x[t]` are the inputs, `y[t]` are the outputs, and `dot` represents the
+        dot product.
+        """
+        output = self(batch)
+
+        cov_batch = batch @ batch.T
+        cov_output = output @ output.T
+
+        loss = torch.sum((cov_batch - cov_output) ** 2)
+        return loss
+
     def training_step_impl(self, x: torch.Tensor) -> torch.Tensor:
         out = self(x)
         for tensor in self.parameters():

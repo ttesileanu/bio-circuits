@@ -421,3 +421,31 @@ def test_test_step_leaves_weights_unchanged(nsm, data):
 
     assert torch.equal(W0, nsm.W)
     assert torch.equal(M0, nsm.M)
+
+
+def test_loss(nsm, data):
+    # use a non-trivial M...
+    m = torch.zeros_like(nsm.M)
+    torch.nn.init.xavier_uniform_(m)
+    # but make sure it's symmetric and has zeros on diagonal
+    m = 0.5 * (m + m.T)
+    m -= torch.diag(torch.diag(m))
+    nsm.M = torch.nn.Parameter(m)
+
+    loss = nsm.loss(data).item()
+
+    y = []
+    for x in data:
+        y.append(nsm(x))
+
+    expected = 0
+    for t1, x1 in enumerate(data):
+        y1 = y[t1]
+        for t2, x2 in enumerate(data):
+            y2 = y[t2]
+
+            dot_x = torch.dot(x1, x2).item()
+            dot_y = torch.dot(y1, y2).item()
+            expected += (dot_x - dot_y) ** 2
+
+    assert pytest.approx(loss) == expected
